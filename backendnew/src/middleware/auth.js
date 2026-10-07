@@ -1,46 +1,173 @@
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'ethionutri_jwt_super_secret_key_2026_v1';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'ethionutri_jwt_refresh_secret_key_2026_v1';
+// ============================================================
+// JWT CONFIGURATION
+// ============================================================
+
+// Production must provide these through environment variables.
+// Do not use hardcoded fallback secrets.
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
+
+if (!JWT_SECRET) {
+  throw new Error(
+    'JWT_SECRET environment variable is required'
+  );
+}
+
+if (!JWT_REFRESH_SECRET) {
+  throw new Error(
+    'JWT_REFRESH_SECRET environment variable is required'
+  );
+}
+
+
+// ============================================================
+// GENERATE TOKENS
+// ============================================================
 
 function generateTokens(userPayload) {
   const accessToken = jwt.sign(
-    { id: userPayload.id, email: userPayload.email, role: userPayload.role || 'user' },
+    {
+      id: userPayload.id,
+      email: userPayload.email,
+      role: userPayload.role || 'user',
+    },
     JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '1d' }
+    {
+      expiresIn:
+        process.env.JWT_EXPIRES_IN || '1d',
+    }
   );
 
   const refreshToken = jwt.sign(
-    { id: userPayload.id },
+    {
+      id: userPayload.id,
+    },
     JWT_REFRESH_SECRET,
-    { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' }
+    {
+      expiresIn:
+        process.env.JWT_REFRESH_EXPIRES_IN || '7d',
+    }
   );
 
-  return { accessToken, refreshToken };
+  return {
+    accessToken,
+    refreshToken,
+  };
 }
+
+
+// ============================================================
+// AUTHENTICATE ACCESS TOKEN
+// ============================================================
 
 function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const authHeader = req.headers.authorization;
 
-  if (!token) {
-    // Demo fallback: default user payload if no bearer token passed
-    req.user = { id: 'user-demo-1', email: 'demo@ethionutri.ai', role: 'user' };
-    return next();
+  // ----------------------------------------------------------
+  // Authorization header required
+  // ----------------------------------------------------------
+
+  if (!authHeader) {
+    return res.status(401).json({
+      error: 'Authentication required',
+    });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired access token' });
+  // ----------------------------------------------------------
+  // Require Bearer authentication scheme
+  // ----------------------------------------------------------
+
+  const parts = authHeader.trim().split(/\s+/);
+
+  if (
+    parts.length !== 2 ||
+    parts[0].toLowerCase() !== 'bearer' ||
+    !parts[1]
+  ) {
+    return res.status(401).json({
+      error: 'Invalid authorization header format',
+    });
+  }
+
+  const token = parts[1];
+
+  // ----------------------------------------------------------
+  // Verify access token
+  // ----------------------------------------------------------
+
+  try {
+    const decoded = jwt.verify(
+      token,
+      JWT_SECRET
+    );
+
+    // --------------------------------------------------------
+    // Basic token payload validation
+    // --------------------------------------------------------
+
+    if (
+      !decoded ||
+      typeof decoded !== 'object' ||
+      !decoded.id ||
+      !decoded.email ||
+      !decoded.role
+    ) {
+      return res.status(401).json({
+        error: 'Invalid access token',
+      });
     }
-    req.user = decoded;
+
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+    };
+
     next();
-  });
+  } catch (error) {
+    return res.status(401).json({
+      error: 'Invalid or expired access token',
+    });
+  }
 }
+
+
+// ============================================================
+// VERIFY REFRESH TOKEN
+// ============================================================
+
+function verifyRefreshToken(refreshToken) {
+  if (!refreshToken) {
+    throw new Error('Refresh token is required');
+  }
+
+  const decoded = jwt.verify(
+    refreshToken,
+    JWT_REFRESH_SECRET
+  );
+
+  if (
+    !decoded ||
+    typeof decoded !== 'object' ||
+    !decoded.id
+  ) {
+    throw new Error('Invalid refresh token');
+  }
+
+  return decoded;
+}
+
+
+// ============================================================
+// EXPORTS
+// ============================================================
 
 module.exports = {
   generateTokens,
   authenticateToken,
+  verifyRefreshToken,
   JWT_SECRET,
   JWT_REFRESH_SECRET,
 };

@@ -2,7 +2,11 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 
-const { generateTokens } = require('../middleware/auth');
+const {
+  generateTokens,
+  verifyRefreshToken,
+} = require('../middleware/auth');
+
 const { db } = require('../db');
 
 const {
@@ -24,7 +28,6 @@ router.post('/register', async (req, res) => {
       password,
       name,
       phone,
-      role,
 
       fastingPractice,
       healthConditions,
@@ -59,21 +62,49 @@ router.post('/register', async (req, res) => {
     }
 
 
-    const normalizedEmail = email.trim().toLowerCase();
+    // --------------------------------------------------------
+    // Validate basic input types
+    // --------------------------------------------------------
+
+    if (
+      typeof email !== 'string' ||
+      typeof password !== 'string' ||
+      typeof name !== 'string'
+    ) {
+      return res.status(400).json({
+        error: 'Invalid registration data',
+      });
+    }
+
+
+    const normalizedEmail =
+      email.trim().toLowerCase();
+
+    const normalizedName =
+      name.trim();
+
+
+    if (!normalizedEmail || !normalizedName) {
+      return res.status(400).json({
+        error: 'Email and name cannot be empty',
+      });
+    }
 
 
     // --------------------------------------------------------
-    // Check if user already exists in PostgreSQL
+    // Check if user already exists
     // --------------------------------------------------------
 
     const existingUsers = await db
-      .select()
+      .select({
+        id: users.id,
+      })
       .from(users)
       .where(eq(users.email, normalizedEmail))
       .limit(1);
 
     if (existingUsers.length > 0) {
-      return res.status(400).json({
+      return res.status(409).json({
         error: 'User with this email already exists',
       });
     }
@@ -83,11 +114,15 @@ router.post('/register', async (req, res) => {
     // Hash password
     // --------------------------------------------------------
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash =
+      await bcrypt.hash(password, 12);
 
 
     // --------------------------------------------------------
-    // INSERT USER INTO REAL POSTGRESQL DATABASE
+    // Create normal user
+    //
+    // IMPORTANT:
+    // The client cannot choose the role.
     // --------------------------------------------------------
 
     const insertedUsers = await db
@@ -96,8 +131,11 @@ router.post('/register', async (req, res) => {
         email: normalizedEmail,
         phone: phone || null,
         passwordHash,
-        name: name.trim(),
-        role: role || 'user',
+        name: normalizedName,
+
+        // Never accept role from public registration.
+        role: 'user',
+
         isPremium: false,
         paymentStatus: 'free_tier',
       })
@@ -113,7 +151,7 @@ router.post('/register', async (req, res) => {
 
 
     // --------------------------------------------------------
-    // INSERT PROFILE INTO REAL POSTGRESQL DATABASE
+    // Create profile
     // --------------------------------------------------------
 
     const insertedProfiles = await db
@@ -177,7 +215,8 @@ router.post('/register', async (req, res) => {
       .returning();
 
 
-    const newProfile = insertedProfiles[0];
+    const newProfile =
+      insertedProfiles[0] || null;
 
 
     // --------------------------------------------------------
@@ -192,7 +231,7 @@ router.post('/register', async (req, res) => {
 
 
     // --------------------------------------------------------
-    // RESPONSE
+    // Response
     // --------------------------------------------------------
 
     return res.status(201).json({
@@ -213,11 +252,13 @@ router.post('/register', async (req, res) => {
     });
 
   } catch (err) {
-
-    console.error('REGISTER ERROR:', err);
+    console.error(
+      'REGISTER ERROR:',
+      err
+    );
 
     return res.status(500).json({
-      error: err.message || 'Registration failed',
+      error: 'Registration failed',
     });
   }
 });
@@ -229,8 +270,15 @@ router.post('/register', async (req, res) => {
 
 router.post('/login', async (req, res) => {
   try {
+    const {
+      email,
+      password,
+    } = req.body;
 
-    const { email, password } = req.body;
+
+    // --------------------------------------------------------
+    // Validate required fields
+    // --------------------------------------------------------
 
     if (!email || !password) {
       return res.status(400).json({
@@ -239,11 +287,22 @@ router.post('/login', async (req, res) => {
     }
 
 
-    const normalizedEmail = email.trim().toLowerCase();
+    if (
+      typeof email !== 'string' ||
+      typeof password !== 'string'
+    ) {
+      return res.status(400).json({
+        error: 'Invalid login data',
+      });
+    }
+
+
+    const normalizedEmail =
+      email.trim().toLowerCase();
 
 
     // --------------------------------------------------------
-    // FETCH USER FROM POSTGRESQL
+    // Fetch user
     // --------------------------------------------------------
 
     const result = await db
@@ -267,10 +326,11 @@ router.post('/login', async (req, res) => {
     // Compare password
     // --------------------------------------------------------
 
-    const passwordMatches = await bcrypt.compare(
-      password,
-      user.passwordHash
-    );
+    const passwordMatches =
+      await bcrypt.compare(
+        password,
+        user.passwordHash
+      );
 
 
     if (!passwordMatches) {
@@ -281,7 +341,7 @@ router.post('/login', async (req, res) => {
 
 
     // --------------------------------------------------------
-    // Fetch profile from PostgreSQL
+    // Fetch profile
     // --------------------------------------------------------
 
     const profileResult = await db
@@ -291,7 +351,8 @@ router.post('/login', async (req, res) => {
       .limit(1);
 
 
-    const profile = profileResult[0] || null;
+    const profile =
+      profileResult[0] || null;
 
 
     // --------------------------------------------------------
@@ -310,7 +371,6 @@ router.post('/login', async (req, res) => {
     // --------------------------------------------------------
 
     return res.json({
-
       message: 'Login successful',
 
       user: {
@@ -328,11 +388,13 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (err) {
-
-    console.error('LOGIN ERROR:', err);
+    console.error(
+      'LOGIN ERROR:',
+      err
+    );
 
     return res.status(500).json({
-      error: err.message || 'Login failed',
+      error: 'Login failed',
     });
   }
 });
@@ -342,31 +404,82 @@ router.post('/login', async (req, res) => {
 // POST /api/v1/auth/refresh
 // ============================================================
 
-router.post('/refresh', (req, res) => {
-
-  const { refreshToken } = req.body;
-
-  if (!refreshToken) {
-    return res.status(400).json({
-      error: 'Refresh token is required',
-    });
-  }
-
+router.post('/refresh', async (req, res) => {
   try {
+    const {
+      refreshToken,
+    } = req.body;
 
-    const { verifyRefreshToken } = require('../middleware/auth');
 
-    const decoded = verifyRefreshToken(refreshToken);
+    // --------------------------------------------------------
+    // Validate refresh token
+    // --------------------------------------------------------
+
+    if (
+      !refreshToken ||
+      typeof refreshToken !== 'string'
+    ) {
+      return res.status(400).json({
+        error: 'Refresh token is required',
+      });
+    }
+
+
+    // --------------------------------------------------------
+    // Verify refresh token signature and expiry
+    // --------------------------------------------------------
+
+    const decoded =
+      verifyRefreshToken(refreshToken);
+
+
+    // --------------------------------------------------------
+    // Fetch current user from database
+    //
+    // Do not trust role/email from the refresh token.
+    // This allows current database authorization state
+    // to be reflected when new access tokens are issued.
+    // --------------------------------------------------------
+
+    const result = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        role: users.role,
+      })
+      .from(users)
+      .where(eq(users.id, decoded.id))
+      .limit(1);
+
+
+    if (result.length === 0) {
+      return res.status(401).json({
+        error: 'User associated with refresh token no longer exists',
+      });
+    }
+
+
+    const user = result[0];
+
+
+    // --------------------------------------------------------
+    // Generate new tokens
+    // --------------------------------------------------------
 
     const tokens = generateTokens({
-      id: decoded.id,
-      email: decoded.email,
-      role: decoded.role,
+      id: user.id,
+      email: user.email,
+      role: user.role,
     });
+
 
     return res.json(tokens);
 
   } catch (error) {
+    console.error(
+      'REFRESH TOKEN ERROR:',
+      error.message
+    );
 
     return res.status(401).json({
       error: 'Invalid or expired refresh token',

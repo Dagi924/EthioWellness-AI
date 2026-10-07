@@ -22,23 +22,9 @@ const {
 } = require('drizzle-orm');
 
 
-/*
-|--------------------------------------------------------------------------
-| POST /api/v1/admin/nutritionists
-|--------------------------------------------------------------------------
-| Admin creates a nutritionist account and nutritionist profile.
-|
-| Body:
-| {
-|   "name": "...",
-|   "email": "...",
-|   "password": "...",
-|   "credentials": "...",
-|   "bio": "...",
-|   "hourlyRateEtb": 800
-| }
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// POST /api/v1/admin/nutritionists
+// ============================================================
 
 router.post(
   '/nutritionists',
@@ -73,10 +59,6 @@ router.post(
       const normalizedEmail =
         email.trim().toLowerCase();
 
-      /*
-       * Check if email already exists.
-       */
-
       const existingUser =
         await db
           .select({
@@ -95,19 +77,8 @@ router.post(
         });
       }
 
-      /*
-       * Hash password using bcrypt.
-       *
-       * Result will look like:
-       * $2b$12$...
-       */
-
       const passwordHash =
         await bcrypt.hash(password, 12);
-
-      /*
-       * Create user.
-       */
 
       const createdUsers =
         await db
@@ -125,10 +96,6 @@ router.post(
       const newUser = createdUsers[0];
 
       try {
-        /*
-         * Create nutritionist profile.
-         */
-
         const createdNutritionists =
           await db
             .insert(nutritionists)
@@ -181,14 +148,14 @@ router.post(
           nutritionist,
         });
       } catch (nutritionistError) {
-        /*
-         * If nutritionist profile creation fails,
-         * remove the user we just created.
-         */
-
         await db
           .delete(users)
-          .where(eq(users.id, newUser.id));
+          .where(
+            eq(
+              users.id,
+              newUser.id
+            )
+          );
 
         throw nutritionistError;
       }
@@ -207,13 +174,9 @@ router.post(
 );
 
 
-/*
-|--------------------------------------------------------------------------
-| GET /api/v1/admin/users
-|--------------------------------------------------------------------------
-| List all users.
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// GET /api/v1/admin/users
+// ============================================================
 
 router.get(
   '/users',
@@ -258,16 +221,9 @@ router.get(
 );
 
 
-/*
-|--------------------------------------------------------------------------
-| DELETE /api/v1/admin/users/:id
-|--------------------------------------------------------------------------
-| Delete user.
-|
-| Profiles, food logs, appointments, etc. that reference the
-| user with ON DELETE CASCADE will be removed automatically.
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// DELETE /api/v1/admin/users/:id
+// ============================================================
 
 router.delete(
   '/users/:id',
@@ -275,12 +231,8 @@ router.delete(
   requireRole('admin'),
   async (req, res) => {
     try {
-      const targetId = req.params.id;
-
-      /*
-       * Prevent admin from accidentally deleting
-       * their own account.
-       */
+      const targetId =
+        req.params.id;
 
       if (targetId === req.user.id) {
         return res.status(400).json({
@@ -296,7 +248,12 @@ router.delete(
             role: users.role,
           })
           .from(users)
-          .where(eq(users.id, targetId))
+          .where(
+            eq(
+              users.id,
+              targetId
+            )
+          )
           .limit(1);
 
       if (existing.length === 0) {
@@ -307,7 +264,12 @@ router.delete(
 
       await db
         .delete(users)
-        .where(eq(users.id, targetId));
+        .where(
+          eq(
+            users.id,
+            targetId
+          )
+        );
 
       return res.json({
         message:
@@ -328,19 +290,9 @@ router.delete(
 );
 
 
-/*
-|--------------------------------------------------------------------------
-| DELETE /api/v1/admin/nutritionists/:id
-|--------------------------------------------------------------------------
-|
-| :id can be either:
-|
-| - nutritionists.id
-| - users.id
-|
-| This makes the endpoint easier for the Flutter admin dashboard.
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// DELETE /api/v1/admin/nutritionists/:id
+// ============================================================
 
 router.delete(
   '/nutritionists/:id',
@@ -348,12 +300,8 @@ router.delete(
   requireRole('admin'),
   async (req, res) => {
     try {
-      const targetId = req.params.id;
-
-      /*
-       * Find nutritionist using either nutritionist ID
-       * or associated user ID.
-       */
+      const targetId =
+        req.params.id;
 
       const found =
         await db
@@ -387,12 +335,6 @@ router.delete(
 
       const nutritionist =
         found[0];
-
-      /*
-       * Because nutritionists.userId references users.id
-       * with ON DELETE CASCADE, deleting the user also
-       * deletes the nutritionist profile.
-       */
 
       await db
         .delete(users)
@@ -428,13 +370,9 @@ router.delete(
 );
 
 
-/*
-|--------------------------------------------------------------------------
-| GET /api/v1/admin/analytics
-|--------------------------------------------------------------------------
-| System-wide metrics.
-|--------------------------------------------------------------------------
-*/
+// ============================================================
+// GET /api/v1/admin/analytics
+// ============================================================
 
 router.get(
   '/analytics',
@@ -442,10 +380,6 @@ router.get(
   requireRole('admin'),
   async (req, res) => {
     try {
-      /*
-       * Users
-       */
-
       const allUsers =
         await db
           .select({
@@ -457,20 +391,12 @@ router.get(
           })
           .from(users);
 
-      /*
-       * Nutritionists
-       */
-
       const allNutritionists =
         await db
           .select({
             id: nutritionists.id,
           })
           .from(nutritionists);
-
-      /*
-       * Payments
-       */
 
       const allPayments =
         await db
@@ -482,20 +408,12 @@ router.get(
           })
           .from(payments);
 
-      /*
-       * Food logs
-       */
-
       const allFoodLogs =
         await db
           .select({
             id: foodLogs.id,
           })
           .from(foodLogs);
-
-      /*
-       * Calculate premium users.
-       */
 
       const activePremiumUsers =
         allUsers.filter(
@@ -504,12 +422,6 @@ router.get(
             user.paymentStatus ===
               'active_premium'
         ).length;
-
-      /*
-       * Calculate successful revenue.
-       *
-       * Only successful payments are counted.
-       */
 
       const paymentRevenue =
         allPayments
@@ -526,14 +438,6 @@ router.get(
               ),
             0
           );
-
-      /*
-       * Existing premium users can also represent
-       * the 299 ETB subscription if they don't have
-       * a corresponding payment record.
-       *
-       * Keep this compatible with your previous logic.
-       */
 
       const premiumSubscriptionRevenue =
         allUsers.filter(
@@ -574,33 +478,63 @@ router.get(
     }
   }
 );
+
+
+// ============================================================
+// GET /api/v1/admin/nutritionists
+// ============================================================
+
 router.get(
   '/nutritionists',
   authenticateToken,
   requireRole('admin'),
   async (req, res) => {
     try {
-      const result = await db
-        .select({
-          nutritionistId: nutritionists.id,
-          userId: nutritionists.userId,
-          name: users.name,
-          email: users.email,
-          credentials: nutritionists.credentials,
-          bio: nutritionists.bio,
-          specializations: nutritionists.specializations,
-          hourlyRateEtb: nutritionists.hourlyRateEtb,
-          isApproved: nutritionists.isApproved,
-        })
-        .from(nutritionists)
-        .innerJoin(
-          users,
-          eq(nutritionists.userId, users.id)
-        );
+      const result =
+        await db
+          .select({
+            nutritionistId:
+              nutritionists.id,
+
+            userId:
+              nutritionists.userId,
+
+            name:
+              users.name,
+
+            email:
+              users.email,
+
+            credentials:
+              nutritionists.credentials,
+
+            bio:
+              nutritionists.bio,
+
+            specializations:
+              nutritionists.specializations,
+
+            hourlyRateEtb:
+              nutritionists.hourlyRateEtb,
+
+            isApproved:
+              nutritionists.isApproved,
+          })
+          .from(nutritionists)
+          .innerJoin(
+            users,
+            eq(
+              nutritionists.userId,
+              users.id
+            )
+          );
 
       return res.json({
-        totalNutritionists: result.length,
-        nutritionists: result,
+        totalNutritionists:
+          result.length,
+
+        nutritionists:
+          result,
       });
     } catch (error) {
       console.error(
@@ -609,10 +543,12 @@ router.get(
       );
 
       return res.status(500).json({
-        error: 'Failed to load nutritionists',
+        error:
+          'Failed to load nutritionists',
       });
     }
   }
 );
+
 
 module.exports = router;

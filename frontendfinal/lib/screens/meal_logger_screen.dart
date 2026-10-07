@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+
 import '../services/food_log_service.dart';
+import '../services/exercise_service.dart';
 import '../services/fasting_service.dart';
 import '../models/fasting_schedule_model.dart';
+
 import 'food_scanner_screen.dart';
 import 'food_search_screen.dart';
 import 'chapa_payment_screen.dart';
@@ -18,10 +21,15 @@ class MealLoggerScreen extends StatefulWidget {
 class _MealLoggerScreenState extends State<MealLoggerScreen> {
   Map<String, dynamic>? _todayData;
   FastingScheduleModel? _fastingStatus;
+
+  List<Map<String, dynamic>> _todayExercises = [];
+
   bool _isLoading = true;
-  bool _showTips = false;
-  String _selectedDateFilter = 'today';
-  final TextEditingController _searchController = TextEditingController();
+
+  final TextEditingController _searchController =
+      TextEditingController();
+
+  String _foodSearch = '';
 
   @override
   void initState() {
@@ -35,268 +43,739 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
     super.dispose();
   }
 
+  // ============================================================
+  // LOAD REAL DASHBOARD DATA
+  // ============================================================
+
   Future<void> _loadData() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
       final logsRes = await FoodLogService.getTodayLogs();
-      FastingScheduleModel? fastRes;
+
+      List<Map<String, dynamic>> exerciseData = [];
+
       try {
-        fastRes = await FastingService.getTodayFasting();
-      } catch (_) {}
+        final exerciseRes =
+            await ExerciseService.getTodayExercises();
 
-      if (mounted) {
-        setState(() {
-          _todayData = logsRes;
-          _fastingStatus = fastRes;
-        });
+        final rawExercises = exerciseRes['exercises'];
+
+        if (rawExercises is List) {
+          exerciseData = rawExercises
+              .whereType<Map>()
+              .map(
+                (item) => Map<String, dynamic>.from(item),
+              )
+              .toList();
+        }
+      } catch (_) {
+        // Exercise is independent from nutrition data.
       }
+
+      FastingScheduleModel? fastingData;
+
+      try {
+        fastingData =
+            await FastingService.getTodayFasting();
+      } catch (_) {
+        // Fasting is optional for the dashboard.
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _todayData = logsRes;
+        _todayExercises = exerciseData;
+        _fastingStatus = fastingData;
+      });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Load error: $e'),
-            backgroundColor: const Color(0xFF542E13),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  void _logWater() async {
-    try {
-      await FoodLogService.logWater(250);
-      _loadData();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error logging water: $e'),
+            content: Text('Failed to load dashboard: $e'),
             backgroundColor: const Color(0xFFDC2626),
           ),
         );
       }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
+  // ============================================================
+  // WATER
+  // ============================================================
+
+  Future<void> _showWaterLogger() async {
+    final controller = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        bool saving = false;
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> saveWater() async {
+              final amount = double.tryParse(
+                controller.text.trim(),
+              );
+
+              if (amount == null || amount <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Enter a valid water amount in ml.',
+                    ),
+                  ),
+                );
+                return;
+              }
+
+              setDialogState(() {
+                saving = true;
+              });
+
+              try {
+                await FoodLogService.logWater(amount);
+                
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                }
+
+                await _loadData();
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Water intake logged successfully.',
+                      ),
+                      backgroundColor: Color(0xFF0284C7),
+                    ),
+                  );
+                }
+              } catch (e) {
+                setDialogState(() {
+                  saving = false;
+                });
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Failed to log water: $e',
+                      ),
+                      backgroundColor: const Color(0xFFDC2626),
+                    ),
+                  );
+                }
+              }
+            }
+
+            return AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(
+                    Icons.water_drop_rounded,
+                    color: Color(0xFF0284C7),
+                  ),
+                  SizedBox(width: 10),
+                  Text('Log Water'),
+                ],
+              ),
+              content: SizedBox(
+                width: 360,
+                child: TextField(
+                  controller: controller,
+                  enabled: !saving,
+                  autofocus: true,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Amount',
+                    hintText: 'Enter amount',
+                    suffixText: 'ml',
+                    prefixIcon: Icon(
+                      Icons.local_drink_outlined,
+                    ),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving
+                      ? null
+                      : () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: saving ? null : saveWater,
+                  icon: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.check),
+                  label: Text(
+                    saving ? 'Saving...' : 'Log Water',
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0284C7),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    controller.dispose();
+  }
+
+  // ============================================================
+  // EXERCISE LOGGER
+  // ============================================================
+
+  Future<void> _showExerciseLogger() async {
+    final workoutController = TextEditingController();
+    final durationController = TextEditingController();
+    final caloriesController = TextEditingController();
+
+    String intensity = 'Moderate';
+    bool isSaving = false;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> saveExercise() async {
+              final workoutName =
+                  workoutController.text.trim();
+
+              final duration = int.tryParse(
+                durationController.text.trim(),
+              );
+
+              final calories = double.tryParse(
+                caloriesController.text.trim(),
+              );
+
+              if (workoutName.isEmpty ||
+                  duration == null ||
+                  duration <= 0 ||
+                  calories == null ||
+                  calories < 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Enter a workout name, valid duration, and calories.',
+                    ),
+                  ),
+                );
+                return;
+              }
+
+              setDialogState(() {
+                isSaving = true;
+              });
+
+              try {
+                await ExerciseService.logExercise(
+                  workoutName: workoutName,
+                  durationMinutes: duration,
+                  caloriesBurned: calories,
+                  intensity: intensity,
+                );
+
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                }
+
+                await _loadData();
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Exercise logged successfully.',
+                      ),
+                      backgroundColor: Color(0xFF2E7D32),
+                    ),
+                  );
+                }
+              } catch (e) {
+                setDialogState(() {
+                  isSaving = false;
+                });
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Failed to log exercise: $e',
+                      ),
+                      backgroundColor: const Color(0xFFDC2626),
+                    ),
+                  );
+                }
+              }
+            }
+
+            return AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(
+                    Icons.fitness_center_rounded,
+                    color: Color(0xFF2E7D32),
+                  ),
+                  SizedBox(width: 10),
+                  Text('Log Exercise'),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 420,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: workoutController,
+                        enabled: !isSaving,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Workout',
+                          hintText: 'e.g. Evening Walk',
+                          prefixIcon: Icon(
+                            Icons.directions_walk_rounded,
+                          ),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: durationController,
+                        enabled: !isSaving,
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Duration',
+                          hintText: 'e.g. 30',
+                          suffixText: 'minutes',
+                          prefixIcon: Icon(
+                            Icons.timer_outlined,
+                          ),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: caloriesController,
+                        enabled: !isSaving,
+                        keyboardType:
+                            const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        textInputAction: TextInputAction.done,
+                        decoration: const InputDecoration(
+                          labelText: 'Calories Burned',
+                          hintText: 'e.g. 120',
+                          suffixText: 'kcal',
+                          prefixIcon: Icon(
+                            Icons.local_fire_department_outlined,
+                          ),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      DropdownButtonFormField<String>(
+                        value: intensity,
+                        decoration: const InputDecoration(
+                          labelText: 'Intensity',
+                          prefixIcon: Icon(
+                            Icons.speed_rounded,
+                          ),
+                          border: OutlineInputBorder(),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'Low',
+                            child: Text('Low'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Moderate',
+                            child: Text('Moderate'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'High',
+                            child: Text('High'),
+                          ),
+                        ],
+                        onChanged: isSaving
+                            ? null
+                            : (value) {
+                                if (value != null) {
+                                  setDialogState(() {
+                                    intensity = value;
+                                  });
+                                }
+                              },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving
+                      ? null
+                      : () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: isSaving ? null : saveExercise,
+                  icon: isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.check),
+                  label: Text(
+                    isSaving ? 'Saving...' : 'Log Exercise',
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2E7D32),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    workoutController.dispose();
+    durationController.dispose();
+    caloriesController.dispose();
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
-    final totals = _todayData?['totals'] ?? {};
-    final logs = (_todayData?['logs'] as List?) ?? [];
-    final screenWidth = MediaQuery.of(context).size.width;
+    final rawTotals = _todayData?['totals'];
+
+    final totals = rawTotals is Map
+        ? Map<String, dynamic>.from(rawTotals)
+        : <String, dynamic>{};
+
+    final rawLogs = _todayData?['logs'];
+
+    final logs = rawLogs is List
+        ? rawLogs.whereType<Map>().map(
+              (item) => Map<String, dynamic>.from(item),
+            ).toList()
+        : <Map<String, dynamic>>[];
+
+    final screenWidth =
+        MediaQuery.of(context).size.width;
+
     final isWide = screenWidth > 860;
 
+    final filteredLogs = _filteredLogs(logs);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F2EA), // Warm heritage sand background
+      backgroundColor: const Color(0xFFF7F2EA),
+
+      // ========================================================
+      // APP BAR
+      // ========================================================
+
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(70),
         child: Container(
           decoration: const BoxDecoration(
             color: Color(0xFFF7F2EA),
-            border: Border(bottom: BorderSide(color: Color(0xFFEADBCE), width: 1)),
+            border: Border(
+              bottom: BorderSide(
+                color: Color(0xFFEADBCE),
+                width: 1,
+              ),
+            ),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 10,
+          ),
           child: SafeArea(
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // Brand Title & Heritage Subtitle
-                Row(
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF542E13),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.eco_rounded,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                        Text(
-                          'EthioNutri AI',
-                          style: TextStyle(
-                            fontSize: 17.5,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF542E13),
-                            letterSpacing: -0.3,
-                          ),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF542E13),
+                          shape: BoxShape.circle,
                         ),
-                        Text(
-                          'Today\'s Nutrition & Fasting',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFF78716C),
-                          ),
+                        child: const Icon(
+                          Icons.eco_rounded,
+                          color: Colors.white,
+                          size: 22,
                         ),
-                      ],
-                    ),
-                  ],
+                      ),
+                      const SizedBox(width: 10),
+                      const Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                        mainAxisAlignment:
+                            MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'EthioNutri AI',
+                            style: TextStyle(
+                              fontSize: 17.5,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF542E13),
+                            ),
+                          ),
+                          Text(
+                            'Today\'s Nutrition & Fasting',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF78716C),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
 
-                // Center Title on wider screens
                 if (isWide)
-                  const Text(
-                    'Food Logging & Nutrition',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF8D4F28), // Warm terracotta
+                  const Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 16,
+                    ),
+                    child: Text(
+                      'Food Logging & Nutrition',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF8D4F28),
+                      ),
                     ),
                   ),
 
-                // Top Right Action Controls: Message, Premium, Dietitian, Camera, Refresh
-                Row(
-                  children: [
-                    // 💬 Message / AI Chat Screen Icon
-                    _circleButton(
-                      Icons.chat_bubble_outline_rounded,
-                      () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const AiChatScreen()),
+                if (isWide)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _circleButton(
+                        Icons.chat_bubble_outline_rounded,
+                        () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                const AiChatScreen(),
+                          ),
+                        ),
+                        tooltip: 'AI Nutrition Chat',
+                        badgeColor:
+                            const Color(0xFF16A34A),
                       ),
-                      tooltip: 'AI Nutrition Chat',
-                      badgeColor: const Color(0xFF16A34A),
-                    ),
-                    const SizedBox(width: 7),
-
-                    // ⭐ Premium Upgrade Icon (Chapa Payment)
-                    _circleButton(
-                      Icons.workspace_premium_outlined,
-                      () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const ChapaPaymentScreen()),
+                      const SizedBox(width: 7),
+                      _circleButton(
+                        Icons.workspace_premium_outlined,
+                        () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                const ChapaPaymentScreen(),
+                          ),
+                        ),
+                        tooltip: 'Upgrade to Premium',
+                        iconColor:
+                            const Color(0xFFB45309),
+                        backgroundColor:
+                            const Color(0xFFFEF3C7),
                       ),
-                      tooltip: 'Upgrade to Premium',
-                      iconColor: const Color(0xFFB45309),
-                      backgroundColor: const Color(0xFFFEF3C7),
-                    ),
-                    const SizedBox(width: 7),
-
-                    // 🩺 Dietitian Supervision Icon
-                    _circleButton(
-                      Icons.medical_services_outlined,
-                      () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const NutritionistScreen()),
+                      const SizedBox(width: 7),
+                      _circleButton(
+                        Icons.medical_services_outlined,
+                        () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                const NutritionistScreen(),
+                          ),
+                        ),
+                        tooltip: 'Dietitian Supervision',
                       ),
-                      tooltip: 'Dietitian Supervision',
-                    ),
-                    const SizedBox(width: 7),
-
-                    // 📷 AI Food Scanner Camera
-                    _circleButton(
-                      Icons.camera_alt_outlined,
-                      () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const FoodScannerScreen()),
-                      ).then((_) => _loadData()),
-                      tooltip: 'AI Food Scanner',
-                    ),
-                    const SizedBox(width: 7),
-
-                    // 🔄 Refresh Nutrients
-                    _circleButton(
-                      Icons.refresh_rounded,
-                      _loadData,
-                      tooltip: 'Refresh Nutrients',
-                    ),
-                  ],
-                ),
+                      const SizedBox(width: 7),
+                      _circleButton(
+                        Icons.camera_alt_outlined,
+                        () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                const FoodScannerScreen(),
+                          ),
+                        ).then((_) => _loadData()),
+                        tooltip: 'AI Food Scanner',
+                      ),
+                      const SizedBox(width: 7),
+                      _circleButton(
+                        Icons.refresh_rounded,
+                        _loadData,
+                        tooltip: 'Refresh Dashboard',
+                      ),
+                    ],
+                  )
+                else
+                  _circleButton(
+                    Icons.refresh_rounded,
+                    _loadData,
+                    tooltip: 'Refresh Dashboard',
+                  ),
               ],
             ),
           ),
         ),
       ),
+
+      // ========================================================
+      // BODY
+      // ========================================================
+
       body: _isLoading
           ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF542E13)),
+              child: CircularProgressIndicator(
+                color: Color(0xFF542E13),
+              ),
             )
           : RefreshIndicator(
               color: const Color(0xFF542E13),
               onRefresh: _loadData,
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                physics:
+                    const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  crossAxisAlignment:
+                      CrossAxisAlignment.stretch,
                   children: [
-                    // Mobile Screen Title
                     if (!isWide)
                       Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
+                        padding:
+                            const EdgeInsets.only(
+                          bottom: 14,
+                        ),
                         child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          mainAxisAlignment:
+                              MainAxisAlignment
+                                  .spaceBetween,
                           children: [
                             const Text(
                               'Food Logging',
                               style: TextStyle(
                                 fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF8D4F28),
+                                fontWeight:
+                                    FontWeight.bold,
+                                color:
+                                    Color(0xFF8D4F28),
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.sync, color: Color(0xFF542E13)),
+                              icon: const Icon(
+                                Icons.sync,
+                                color:
+                                    Color(0xFF542E13),
+                              ),
                               onPressed: _loadData,
-                              tooltip: 'Refresh',
                             ),
                           ],
                         ),
                       ),
 
-                    // --- Date Selector Pills & Log Search Bar ---
-                    _buildDateAndSearchFilter(),
+                    // SEARCH LOGGED FOODS
+                    _buildSearchFilter(),
+
                     const SizedBox(height: 16),
 
-                    // --- Quick Action Cards (Voice Log & Manual Entry) ---
+                    // QUICK ACTIONS
                     _buildQuickActionCards(),
+
                     const SizedBox(height: 20),
 
-                    // --- Main Body (Split for Wide, Stacked for Mobile) ---
+                    // EXERCISE
+                    _buildTodayExerciseCard(),
+
+                    const SizedBox(height: 20),
+
                     if (isWide)
                       Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
                         children: [
-                          // Left Column: Meals List
                           Expanded(
                             flex: 13,
                             child: Column(
                               children: [
-                                if (_fastingStatus != null) _buildFastingBanner(_fastingStatus!),
-                                _buildMealSection(
-                                  title: 'Breakfast (የቁርስ ሰዓት)',
-                                  targetRange: 'Target: 400 - 500 kcal',
-                                  mealType: 'breakfast',
-                                  logs: logs,
-                                ),
-                                const SizedBox(height: 16),
-                                _buildMealSection(
-                                  title: 'Lunch (የምሳ ሰዓት)',
-                                  targetRange: 'Target: 600 - 750 kcal',
-                                  mealType: 'lunch',
-                                  logs: logs,
+                                if (_fastingStatus != null)
+                                  _buildFastingBanner(
+                                    _fastingStatus!,
+                                  ),
+
+                                if (_fastingStatus != null)
+                                  const SizedBox(height: 16),
+
+                                _buildFoodLogsCard(
+                                  filteredLogs,
                                 ),
                               ],
                             ),
                           ),
+
                           const SizedBox(width: 20),
-                          // Right Column: Daily Running Totals Ring & Macro Summary
+
                           Expanded(
                             flex: 9,
-                            child: Column(
-                              children: [
-                                _buildDailyRunningTotalsCard(totals),
-                              ],
+                            child: _buildDailyTotalsCard(
+                              totals,
                             ),
                           ),
                         ],
@@ -304,22 +783,21 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                     else
                       Column(
                         children: [
-                          _buildDailyRunningTotalsCard(totals),
-                          const SizedBox(height: 16),
-                          if (_fastingStatus != null) _buildFastingBanner(_fastingStatus!),
-                          const SizedBox(height: 16),
-                          _buildMealSection(
-                            title: 'Breakfast (የቁርስ ሰዓት)',
-                            targetRange: 'Target: 400 - 500 kcal',
-                            mealType: 'breakfast',
-                            logs: logs,
+                          _buildDailyTotalsCard(
+                            totals,
                           ),
                           const SizedBox(height: 16),
-                          _buildMealSection(
-                            title: 'Lunch & Dinner (የምሳ እና ራት ሰዓት)',
-                            targetRange: 'Target: 800 - 1000 kcal',
-                            mealType: 'lunch_dinner',
-                            logs: logs,
+
+                          if (_fastingStatus != null)
+                            _buildFastingBanner(
+                              _fastingStatus!,
+                            ),
+
+                          if (_fastingStatus != null)
+                            const SizedBox(height: 16),
+
+                          _buildFoodLogsCard(
+                            filteredLogs,
                           ),
                         ],
                       ),
@@ -327,218 +805,302 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                 ),
               ),
             ),
-      floatingActionButton: FloatingActionButton.extended(
+
+      floatingActionButton:
+          FloatingActionButton.extended(
         onPressed: () => Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => const FoodSearchScreen()),
+          MaterialPageRoute(
+            builder: (_) => const FoodSearchScreen(),
+          ),
         ).then((_) => _loadData()),
         backgroundColor: const Color(0xFF542E13),
         foregroundColor: Colors.white,
         icon: const Icon(Icons.search),
         label: const Text(
           'Search FAO Food',
-          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.3),
-        ),
-      ),
-    );
-  }
-
-  // --- Date Filter Pills and Search Bar ---
-  Widget _buildDateAndSearchFilter() {
-    return Row(
-      children: [
-        // Date Pills
-        Container(
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(30),
-            border: Border.all(color: const Color(0xFFEADBCE)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _datePill('yesterday', 'Yesterday'),
-              _datePill('today', 'Today (Wed Fast)'),
-              _datePill('tomorrow', 'Tomorrow'),
-            ],
-          ),
-        ),
-        const SizedBox(width: 14),
-        // Search Bar Pill
-        Expanded(
-          child: Container(
-            height: 44,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: const Color(0xFFEADBCE)),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Row(
-              children: [
-                const Icon(Icons.search, color: Color(0xFFA8A29E), size: 19),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: const InputDecoration(
-                      hintText: 'Search logged foods, Injera, Misir, Shiro...',
-                      hintStyle: TextStyle(color: Color(0xFFA8A29E), fontSize: 13),
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    style: const TextStyle(fontSize: 13.5, color: Color(0xFF1C1917)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _datePill(String id, String label) {
-    final isSelected = _selectedDateFilter == id;
-    return GestureDetector(
-      onTap: () => setState(() => _selectedDateFilter = id),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF542E13) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          label,
           style: TextStyle(
-            color: isSelected ? Colors.white : const Color(0xFF78716C),
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-            fontSize: 12.5,
+            fontWeight: FontWeight.bold,
           ),
         ),
       ),
     );
   }
 
-  // --- Voice Log and Manual Entry Action Cards ---
-  Widget _buildQuickActionCards() {
-    return Row(
-      children: [
-        // Voice Log Card
-        Expanded(
-          child: GestureDetector(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const FoodScannerScreen()),
-            ).then((_) => _loadData()),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFEADBCE)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFF5EBE1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.mic_none_rounded, color: Color(0xFF8D4F28), size: 22),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Voice Log',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1C1917)),
-                  ),
-                  const SizedBox(height: 2),
-                  const Text(
-                    'AI Speech Transcription',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF78716C)),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 14),
+  // ============================================================
+  // SEARCH
+  // ============================================================
 
-        // Manual Entry Card
-        Expanded(
-          child: GestureDetector(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const FoodSearchScreen()),
-            ).then((_) => _loadData()),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFEADBCE)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFFDECE3),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.edit_outlined, color: Color(0xFF8D4F28), size: 22),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Manual Entry',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1C1917)),
-                  ),
-                  const SizedBox(height: 2),
-                  const Text(
-                    'Ethiopian Food Presets',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF78716C)),
-                  ),
-                ],
+  Widget _buildSearchFilter() {
+    return Container(
+      height: 46,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: const Color(0xFFEADBCE),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 14,
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.search,
+            color: Color(0xFFA8A29E),
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) {
+                setState(() {
+                  _foodSearch = value.trim().toLowerCase();
+                });
+              },
+              decoration: const InputDecoration(
+                hintText:
+                    'Search today\'s logged foods...',
+                border: InputBorder.none,
+                isDense: true,
               ),
             ),
           ),
-        ),
-      ],
+          if (_searchController.text.isNotEmpty)
+            IconButton(
+              icon: const Icon(
+                Icons.clear,
+                size: 18,
+              ),
+              onPressed: () {
+                _searchController.clear();
+                setState(() {
+                  _foodSearch = '';
+                });
+              },
+            ),
+        ],
+      ),
     );
   }
 
-  // --- Meal Group Card with Sunrise Icon and Food Items ---
-  Widget _buildMealSection({
+  List<Map<String, dynamic>> _filteredLogs(
+    List<Map<String, dynamic>> logs,
+  ) {
+    if (_foodSearch.isEmpty) {
+      return logs;
+    }
+
+    return logs.where((log) {
+      final foodName =
+          (log['foodName'] ?? '')
+              .toString()
+              .toLowerCase();
+
+      return foodName.contains(_foodSearch);
+    }).toList();
+  }
+
+  // ============================================================
+  // QUICK ACTIONS
+  // ============================================================
+
+  Widget _buildQuickActionCards() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cards = [
+          _quickActionCard(
+            icon: Icons.mic_none_rounded,
+            iconBackground:
+                const Color(0xFFF5EBE1),
+            iconColor:
+                const Color(0xFF8D4F28),
+            title: 'Voice Log',
+            subtitle:
+                'AI Speech Transcription',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    const FoodScannerScreen(),
+              ),
+            ).then((_) => _loadData()),
+          ),
+          _quickActionCard(
+            icon: Icons.edit_outlined,
+            iconBackground:
+                const Color(0xFFFDECE3),
+            iconColor:
+                const Color(0xFF8D4F28),
+            title: 'Manual Entry',
+            subtitle:
+                'Search & Log Food',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    const FoodSearchScreen(),
+              ),
+            ).then((_) => _loadData()),
+          ),
+          _quickActionCard(
+            icon:
+                Icons.fitness_center_rounded,
+            iconBackground:
+                const Color(0xFFE8F5E9),
+            iconColor:
+                const Color(0xFF2E7D32),
+            title: 'Exercise',
+            subtitle:
+                'Log Today\'s Workout',
+            onTap:
+                _showExerciseLogger,
+          ),
+        ];
+
+        if (constraints.maxWidth < 650) {
+          return Wrap(
+            spacing: 14,
+            runSpacing: 14,
+            children: cards
+                .map(
+                  (card) => SizedBox(
+                    width:
+                        (constraints.maxWidth - 14) /
+                            2,
+                    child: card,
+                  ),
+                )
+                .toList(),
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(child: cards[0]),
+            const SizedBox(width: 14),
+            Expanded(child: cards[1]),
+            const SizedBox(width: 14),
+            Expanded(child: cards[2]),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _quickActionCard({
+    required IconData icon,
+    required Color iconBackground,
+    required Color iconColor,
     required String title,
-    required String targetRange,
-    required String mealType,
-    required List logs,
+    required String subtitle,
+    required VoidCallback onTap,
   }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 18,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: const Color(0xFFEADBCE),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: iconBackground,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                color: iconColor,
+                size: 22,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1C1917),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF78716C),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // EXERCISE
+  // ============================================================
+
+  Widget _buildTodayExerciseCard() {
+    final totalMinutes =
+        _todayExercises.fold<int>(
+      0,
+      (sum, exercise) {
+        final value =
+            exercise['durationMinutes'];
+
+        return sum +
+            (value is num
+                ? value.toInt()
+                : 0);
+      },
+    );
+
+    final totalCalories =
+        _todayExercises.fold<double>(
+      0,
+      (sum, exercise) {
+        final value =
+            exercise['caloriesBurned'];
+
+        return sum +
+            (value is num
+                ? value.toDouble()
+                : 0);
+      },
+    );
+
     return Container(
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFEADBCE)),
+        border: Border.all(
+          color: const Color(0xFFEADBCE),
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.03),
@@ -547,161 +1109,241 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
           ),
         ],
       ),
-      padding: const EdgeInsets.all(18),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment:
+            CrossAxisAlignment.stretch,
         children: [
-          // Header Row
           Row(
             children: [
-              // Sunrise Icon badge
               Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEF3C7),
-                  borderRadius: BorderRadius.circular(8),
+                width: 38,
+                height: 38,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFE8F5E9),
+                  shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.wb_sunny_rounded, color: Color(0xFFD97706), size: 20),
+                child: const Icon(
+                  Icons.fitness_center_rounded,
+                  color: Color(0xFF2E7D32),
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 10),
-              Expanded(
+              const Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 15.5,
+                      'Today\'s Exercise',
+                      style: TextStyle(
+                        fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF1C1917),
                       ),
                     ),
                     Text(
-                      targetRange,
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF78716C)),
+                      'Your activity for today',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF78716C),
+                      ),
                     ),
                   ],
                 ),
               ),
-              // Macro Pill Badge
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF5EBE1),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Text(
-                  '320 kcal • 8g protein',
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF542E13),
+              if (_todayExercises.isNotEmpty)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color:
+                        const Color(0xFFE8F5E9),
+                    borderRadius:
+                        BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    '$totalMinutes min',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF2E7D32),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              // + Add Food Outlined Button
-              OutlinedButton(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const FoodSearchScreen()),
-                ).then((_) => _loadData()),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFF542E13)),
-                  foregroundColor: const Color(0xFF542E13),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  minimumSize: const Size(60, 32),
-                ),
-                child: const Text(
-                  '+ Add Food',
-                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 14),
-
-          // Logged Food Item Preview
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFBF8F4), // Warm sand item container
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFFEFE8DF)),
+          if (_todayExercises.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFAFAF9),
+                borderRadius:
+                    BorderRadius.circular(14),
+                border: Border.all(
+                  color: const Color(0xFFE7E5E4),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.directions_run_outlined,
+                    color: Color(0xFF78716C),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'No exercise logged today.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF78716C),
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed:
+                        _showExerciseLogger,
+                    icon: const Icon(
+                      Icons.add,
+                      size: 18,
+                    ),
+                    label: const Text('Log'),
+                  ),
+                ],
+              ),
+            )
+          else ...[
+            ..._todayExercises.map(
+              _buildExerciseLogItem,
             ),
-            child: Row(
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment:
+                  MainAxisAlignment.end,
               children: [
-                // Food Image Thumbnail
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Container(
-                    width: 50,
-                    height: 50,
-                    color: const Color(0xFFEADBCE),
-                    child: const Icon(Icons.restaurant, color: Color(0xFF8D4F28), size: 26),
+                Text(
+                  '${totalCalories.toStringAsFixed(0)} kcal burned',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2E7D32),
                   ),
                 ),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Kinche with Olive Oil / Niter Kibbeh',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Color(0xFF1C1917)),
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          const Text(
-                            'ቂንጬ በቅቤ/ዘይት',
-                            style: TextStyle(fontSize: 11.5, color: Color(0xFF78716C)),
-                          ),
-                          const SizedBox(width: 8),
-                          // Tsom Badge
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF5EBE1),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: const [
-                                Icon(Icons.eco, size: 10, color: Color(0xFF8D4F28)),
-                                SizedBox(width: 2),
-                                Text(
-                                  'Tsom',
-                                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF542E13)),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                TextButton.icon(
+                  onPressed:
+                      _showExerciseLogger,
+                  icon: const Icon(
+                    Icons.add,
+                    size: 18,
                   ),
-                ),
-                // Macro Values
-                Row(
-                  children: [
-                    _macroBadge('320', 'kcal', const Color(0xFF8D4F28)),
-                    const SizedBox(width: 6),
-                    _macroBadge('8g', 'P', const Color(0xFF542E13)),
-                    const SizedBox(width: 6),
-                    _macroBadge('58g', 'C', const Color(0xFF2563EB)),
-                    const SizedBox(width: 6),
-                    _macroBadge('7g', 'F', const Color(0xFFD97706)),
-                  ],
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Color(0xFFA8A29E), size: 18),
-                  onPressed: () {},
+                  label:
+                      const Text('Log More'),
                 ),
               ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExerciseLogItem(
+    Map<String, dynamic> exercise,
+  ) {
+    final name =
+        exercise['workoutName']
+                ?.toString() ??
+            'Exercise';
+
+    final durationValue =
+        exercise['durationMinutes'];
+
+    final duration =
+        durationValue is num
+            ? durationValue.toInt()
+            : 0;
+
+    final caloriesValue =
+        exercise['caloriesBurned'];
+
+    final calories =
+        caloriesValue is num
+            ? caloriesValue.toDouble()
+            : 0;
+
+    final intensity =
+        exercise['intensity']
+                ?.toString() ??
+            '';
+
+    return Container(
+      margin:
+          const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFAF9),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: const Color(0xFFE7E5E4),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: const BoxDecoration(
+              color: Color(0xFFE8F5E9),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.directions_run_rounded,
+              color: Color(0xFF2E7D32),
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow:
+                      TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1C1917),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  intensity.isEmpty
+                      ? '$duration min'
+                      : '$duration min • $intensity',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: Color(0xFF78716C),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            '${calories.toStringAsFixed(0)} kcal',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF2E7D32),
             ),
           ),
         ],
@@ -709,27 +1351,385 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
     );
   }
 
-  Widget _macroBadge(String value, String label, Color color) {
-    return Column(
-      children: [
-        Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
-        Text(label, style: TextStyle(fontSize: 9.5, color: color.withOpacity(0.8))),
-      ],
+  // ============================================================
+  // REAL FOOD LOGS
+  // ============================================================
+
+  Widget _buildFoodLogsCard(
+    List<Map<String, dynamic>> logs,
+  ) {
+    final foodLogs = logs.where((log) {
+      final logType =
+          (log['logType'] ?? '')
+              .toString()
+              .toLowerCase();
+
+      return logType != 'water';
+    }).toList();
+
+    final waterLogs = logs.where((log) {
+      final logType =
+          (log['logType'] ?? '')
+              .toString()
+              .toLowerCase();
+
+      return logType == 'water';
+    }).toList();
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFEADBCE),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF5EBE1),
+                  borderRadius:
+                      BorderRadius.circular(9),
+                ),
+                child: const Icon(
+                  Icons.restaurant_menu_rounded,
+                  color: Color(0xFF8D4F28),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Today\'s Food Logs',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1C1917),
+                      ),
+                    ),
+                    Text(
+                      'Real food entries from your account',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF78716C),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        const FoodSearchScreen(),
+                  ),
+                ).then((_) => _loadData()),
+                icon: const Icon(
+                  Icons.add,
+                  size: 17,
+                ),
+                label: const Text('Add Food'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor:
+                      const Color(0xFF542E13),
+                  side: const BorderSide(
+                    color: Color(0xFF542E13),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          if (foodLogs.isEmpty)
+            _buildEmptyFoodState()
+          else
+            ...foodLogs.map(
+              _buildFoodLogItem,
+            ),
+
+          if (waterLogs.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F9FF),
+                borderRadius:
+                    BorderRadius.circular(14),
+                border: Border.all(
+                  color: const Color(0xFFBAE6FD),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.water_drop_rounded,
+                    color: Color(0xFF0284C7),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '${_sumWaterLogs(waterLogs)} ml logged as water',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF075985),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
-  // --- Right Side / Mobile Daily Running Totals Ring Gauge ---
-  Widget _buildDailyRunningTotalsCard(Map<dynamic, dynamic> totals) {
-    final calConsumed = totals['calories'] ?? 320;
-    final calTarget = 2000;
-    final progress = (calConsumed / calTarget).clamp(0.0, 1.0);
+  Widget _buildEmptyFoodState() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFAF9),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: const Color(0xFFE7E5E4),
+        ),
+      ),
+      child: Column(
+        children: [
+          const Icon(
+            Icons.restaurant_outlined,
+            size: 36,
+            color: Color(0xFFA8A29E),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'No food logged today.',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF44403C),
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Search for a food or add a meal to see it here.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: Color(0xFF78716C),
+            ),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    const FoodSearchScreen(),
+              ),
+            ).then((_) => _loadData()),
+            icon: const Icon(Icons.search),
+            label: const Text('Search Food'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFoodLogItem(
+    Map<String, dynamic> log,
+  ) {
+    final foodName =
+        (log['foodName'] ?? 'Food')
+            .toString();
+
+    final portion =
+        _number(log['portionGrams']);
+
+    final calories =
+        _number(log['calories']);
+
+    final protein =
+        _number(log['proteinGrams']);
+
+    final carbs =
+        _number(log['carbsGrams']);
+
+    final fats =
+        _number(log['fatsGrams']);
+
+    final logType =
+        (log['logType'] ?? '')
+            .toString();
+
+    return Container(
+      margin:
+          const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFBF8F4),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: const Color(0xFFEFE8DF),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEADBCE),
+                  borderRadius:
+                      BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.restaurant,
+                  color: Color(0xFF8D4F28),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      foodName,
+                      maxLines: 2,
+                      overflow:
+                          TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13.5,
+                        color: Color(0xFF1C1917),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      portion > 0
+                          ? '${_formatNumber(portion)} g'
+                          : logType,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF78716C),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${_formatNumber(calories)} kcal',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF8D4F28),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 10),
+
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _macroBadge(
+                '${_formatNumber(protein)}g',
+                'P',
+                const Color(0xFF8D4F28),
+              ),
+              _macroBadge(
+                '${_formatNumber(carbs)}g',
+                'C',
+                const Color(0xFF2563EB),
+              ),
+              _macroBadge(
+                '${_formatNumber(fats)}g',
+                'F',
+                const Color(0xFFD97706),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  double _sumWaterLogs(
+    List<Map<String, dynamic>> logs,
+  ) {
+    return logs.fold<double>(
+      0,
+      (sum, log) {
+        final value = log['waterMl'];
+
+        return sum +
+            (value is num
+                ? value.toDouble()
+                : 0);
+      },
+    );
+  }
+
+  // ============================================================
+  // DAILY REAL TOTALS
+  // ============================================================
+
+  Widget _buildDailyTotalsCard(
+    Map<String, dynamic> totals,
+  ) {
+    final calories =
+        _number(totals['calories']);
+
+    final protein =
+        _number(totals['proteinGrams']);
+
+    final carbs =
+        _number(totals['carbsGrams']);
+
+    final fats =
+        _number(totals['fatsGrams']);
+
+    final water =
+        _number(totals['waterMl']);
 
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFEADBCE)),
+        border: Border.all(
+          color: const Color(0xFFEADBCE),
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.03),
@@ -739,127 +1739,227 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment:
+            CrossAxisAlignment.stretch,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'Daily Running Totals',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1C1917),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Today\'s Totals',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1C1917),
+                      ),
                     ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Wednesday Fast • 100% Plant-Based',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF8D4F28), fontWeight: FontWeight.w600),
-                  ),
-                ],
+                    SizedBox(height: 2),
+                    Text(
+                      'Actual values from your food logs',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF78716C),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               IconButton(
-                icon: const Icon(Icons.water_drop, color: Colors.blue, size: 20),
-                tooltip: '+250ml Water',
-                onPressed: _logWater,
+                icon: const Icon(
+                  Icons.water_drop_rounded,
+                  color: Color(0xFF0284C7),
+                ),
+                tooltip: 'Log water',
+                onPressed: _showWaterLogger,
               ),
             ],
           ),
-          const SizedBox(height: 20),
 
-          // Circular Calorie Gauge
+          const SizedBox(height: 18),
+
           Center(
-            child: SizedBox(
-              width: 140,
-              height: 140,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 130,
-                    height: 130,
-                    child: CircularProgressIndicator(
-                      value: progress,
-                      strokeWidth: 10,
-                      backgroundColor: const Color(0xFFF0EAE1),
-                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF542E13)),
-                    ),
+            child: Column(
+              children: [
+                Text(
+                  _formatNumber(calories),
+                  style: const TextStyle(
+                    fontSize: 34,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF542E13),
                   ),
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        '$calConsumed',
-                        style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF542E13),
-                        ),
-                      ),
-                      const Text(
-                        'kcal consumed',
-                        style: TextStyle(fontSize: 11, color: Color(0xFF78716C)),
-                      ),
-                    ],
+                ),
+                const Text(
+                  'kcal consumed',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF78716C),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
+
+          const SizedBox(height: 22),
+
+          Wrap(
+            alignment: WrapAlignment.spaceAround,
+            spacing: 18,
+            runSpacing: 18,
+            children: [
+              _macroProgressItem(
+                'Protein',
+                '${_formatNumber(protein)}g',
+                const Color(0xFF8D4F28),
+              ),
+              _macroProgressItem(
+                'Carbs',
+                '${_formatNumber(carbs)}g',
+                const Color(0xFF2563EB),
+              ),
+              _macroProgressItem(
+                'Fats',
+                '${_formatNumber(fats)}g',
+                const Color(0xFFD97706),
+              ),
+              _macroProgressItem(
+                'Water',
+                '${_formatNumber(water)}ml',
+                const Color(0xFF0284C7),
+              ),
+            ],
+          ),
+
           const SizedBox(height: 20),
 
-          // Macro Breakdown Items
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _macroProgressItem('Protein', '${totals['proteinGrams'] ?? 8}g', const Color(0xFF8D4F28)),
-              _macroProgressItem('Carbs', '${totals['carbsGrams'] ?? 58}g', const Color(0xFF2563EB)),
-              _macroProgressItem('Fats', '${totals['fatsGrams'] ?? 7}g', const Color(0xFFD97706)),
-              _macroProgressItem('Water', '${totals['waterMl'] ?? 250}ml', const Color(0xFF0284C7)),
-            ],
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFAFAF9),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: const Color(0xFFE7E5E4),
+              ),
+            ),
+            child: const Text(
+              'Nutrition targets are not displayed here because the current API does not provide personalized daily targets.',
+              style: TextStyle(
+                fontSize: 11.5,
+                height: 1.4,
+                color: Color(0xFF78716C),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _macroProgressItem(String label, String value, Color color) {
+  Widget _macroProgressItem(
+    String label,
+    String value,
+    Color color,
+  ) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           value,
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color),
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
         ),
         const SizedBox(height: 2),
         Text(
           label,
-          style: const TextStyle(fontSize: 11.5, color: Color(0xFF78716C)),
+          style: const TextStyle(
+            fontSize: 11.5,
+            color: Color(0xFF78716C),
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildFastingBanner(FastingScheduleModel fast) {
+  Widget _macroBadge(
+    String value,
+    String label,
+    Color color,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 5,
+      ),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: RichText(
+        text: TextSpan(
+          children: [
+            TextSpan(
+              text: value,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            TextSpan(
+              text: ' $label',
+              style: TextStyle(
+                fontSize: 9.5,
+                color: color.withOpacity(0.8),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // FASTING
+  // ============================================================
+
+  Widget _buildFastingBanner(
+    FastingScheduleModel fast,
+  ) {
+    final isFasting =
+        fast.displayTitle
+            .toLowerCase()
+            .contains('fast');
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: const Color(0xFFFEF3C7),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFFDE68A)),
+        border: Border.all(
+          color: const Color(0xFFFDE68A),
+        ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               const CircleAvatar(
                 radius: 14,
-                backgroundColor: Color(0xFFFDE68A),
-                child: Icon(Icons.church_outlined, color: Color(0xFFB45309), size: 16),
+                backgroundColor:
+                    Color(0xFFFDE68A),
+                child: Icon(
+                  Icons.church_outlined,
+                  color: Color(0xFFB45309),
+                  size: 16,
+                ),
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -872,28 +1972,69 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                   ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF542E13),
-                  borderRadius: BorderRadius.circular(6),
+              if (isFasting)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF542E13),
+                    borderRadius:
+                        BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'FASTING',
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
-                child: const Text(
-                  'STRICT VEGAN',
-                  style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white),
-                ),
-              ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 7),
           Text(
             fast.advice,
-            style: const TextStyle(fontSize: 12, height: 1.3, color: Color(0xFF78350F)),
+            style: const TextStyle(
+              fontSize: 12,
+              height: 1.3,
+              color: Color(0xFF78350F),
+            ),
           ),
         ],
       ),
     );
   }
+
+  // ============================================================
+  // HELPERS
+  // ============================================================
+
+  double _number(dynamic value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    return double.tryParse(
+          value?.toString() ?? '',
+        ) ??
+        0;
+  }
+
+  String _formatNumber(double value) {
+    if (value == value.roundToDouble()) {
+      return value.toInt().toString();
+    }
+
+    return value.toStringAsFixed(1);
+  }
+
+  // ============================================================
+  // HEADER BUTTON
+  // ============================================================
 
   Widget _circleButton(
     IconData icon,
@@ -903,32 +2044,37 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
     Color? backgroundColor,
     Color? badgeColor,
   }) {
-    Widget btn = InkWell(
+    Widget button = InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
       child: Container(
         width: 36,
         height: 36,
         decoration: BoxDecoration(
-          color: backgroundColor ?? Colors.white,
+          color:
+              backgroundColor ?? Colors.white,
           shape: BoxShape.circle,
           border: Border.all(
-            color: backgroundColor != null ? const Color(0xFFFED7AA) : const Color(0xFFEADBCE),
+            color: backgroundColor != null
+                ? const Color(0xFFFED7AA)
+                : const Color(0xFFEADBCE),
           ),
         ),
         child: Icon(
           icon,
           size: 18,
-          color: iconColor ?? const Color(0xFF542E13),
+          color:
+              iconColor ??
+              const Color(0xFF542E13),
         ),
       ),
     );
 
     if (badgeColor != null) {
-      btn = Stack(
+      button = Stack(
         clipBehavior: Clip.none,
         children: [
-          btn,
+          button,
           Positioned(
             top: 2,
             right: 2,
@@ -938,7 +2084,10 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               decoration: BoxDecoration(
                 color: badgeColor,
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 1.5),
+                border: Border.all(
+                  color: Colors.white,
+                  width: 1.5,
+                ),
               ),
             ),
           ),
@@ -949,10 +2098,10 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
     if (tooltip != null) {
       return Tooltip(
         message: tooltip,
-        child: btn,
+        child: button,
       );
     }
 
-    return btn;
+    return button;
   }
 }

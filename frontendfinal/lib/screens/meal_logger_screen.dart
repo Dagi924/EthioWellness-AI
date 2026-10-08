@@ -1,8 +1,11 @@
+
 import 'package:flutter/material.dart';
 
 import '../services/food_log_service.dart';
 import '../services/exercise_service.dart';
 import '../services/fasting_service.dart';
+import '../services/sleep_service.dart';
+import '../services/mood_service.dart';
 import '../models/fasting_schedule_model.dart';
 
 import 'food_scanner_screen.dart';
@@ -23,6 +26,9 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
   FastingScheduleModel? _fastingStatus;
 
   List<Map<String, dynamic>> _todayExercises = [];
+
+  Map<String, dynamic>? _todaySleep;
+  List<Map<String, dynamic>> _todayMood = [];
 
   bool _isLoading = true;
 
@@ -74,7 +80,7 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               .toList();
         }
       } catch (_) {
-        // Exercise is independent from nutrition data.
+        // Exercise is independent.
       }
 
       FastingScheduleModel? fastingData;
@@ -83,7 +89,25 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
         fastingData =
             await FastingService.getTodayFasting();
       } catch (_) {
-        // Fasting is optional for the dashboard.
+        // Fasting is optional.
+      }
+
+      Map<String, dynamic>? sleepData;
+
+      try {
+        sleepData =
+            await SleepService.getTodaySleep();
+      } catch (_) {
+        // Sleep is optional.
+      }
+
+      List<Map<String, dynamic>> moodData = [];
+
+      try {
+        moodData =
+            await MoodService.getTodayMood();
+      } catch (_) {
+        // Mood is optional.
       }
 
       if (!mounted) return;
@@ -92,12 +116,16 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
         _todayData = logsRes;
         _todayExercises = exerciseData;
         _fastingStatus = fastingData;
+        _todaySleep = sleepData;
+        _todayMood = moodData;
       });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to load dashboard: $e'),
+            content: Text(
+              'Failed to load dashboard: $e',
+            ),
             backgroundColor: const Color(0xFFDC2626),
           ),
         );
@@ -147,7 +175,7 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
 
               try {
                 await FoodLogService.logWater(amount);
-                
+
                 if (dialogContext.mounted) {
                   Navigator.pop(dialogContext);
                 }
@@ -175,7 +203,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                       content: Text(
                         'Failed to log water: $e',
                       ),
-                      backgroundColor: const Color(0xFFDC2626),
+                      backgroundColor:
+                          const Color(0xFFDC2626),
                     ),
                   );
                 }
@@ -237,7 +266,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                     saving ? 'Saving...' : 'Log Water',
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0284C7),
+                    backgroundColor:
+                        const Color(0xFF0284C7),
                     foregroundColor: Colors.white,
                   ),
                 ),
@@ -249,6 +279,790 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
     );
 
     controller.dispose();
+  }
+
+  // ============================================================
+  // SLEEP LOGGER
+  // ============================================================
+
+  Future<void> _showSleepLogger() async {
+    TimeOfDay? bedtime;
+    TimeOfDay? wakeTime;
+
+    int selectedDuration = 8 * 60;
+    int quality = 3;
+
+    bool isSaving = false;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> selectBedtime() async {
+              final picked = await showTimePicker(
+                context: context,
+                initialTime:
+                    bedtime ??
+                    const TimeOfDay(
+                      hour: 22,
+                      minute: 0,
+                    ),
+              );
+
+              if (picked != null) {
+                setDialogState(() {
+                  bedtime = picked;
+                });
+              }
+            }
+
+            Future<void> selectWakeTime() async {
+              final picked = await showTimePicker(
+                context: context,
+                initialTime:
+                    wakeTime ??
+                    const TimeOfDay(
+                      hour: 6,
+                      minute: 0,
+                    ),
+              );
+
+              if (picked != null) {
+                setDialogState(() {
+                  wakeTime = picked;
+                });
+              }
+            }
+
+            void selectHourRange(int minutes) {
+              setDialogState(() {
+                selectedDuration = minutes;
+              });
+            }
+
+            Future<void> saveSleep() async {
+              if (bedtime == null ||
+                  wakeTime == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Select both bedtime and wake time.',
+                    ),
+                  ),
+                );
+                return;
+              }
+
+              final now = DateTime.now();
+
+              DateTime bedtimeDate = DateTime(
+                now.year,
+                now.month,
+                now.day,
+                bedtime!.hour,
+                bedtime!.minute,
+              );
+
+              DateTime wakeTimeDate = DateTime(
+                now.year,
+                now.month,
+                now.day,
+                wakeTime!.hour,
+                wakeTime!.minute,
+              );
+
+              if (!wakeTimeDate.isAfter(bedtimeDate)) {
+                wakeTimeDate =
+                    wakeTimeDate.add(
+                  const Duration(days: 1),
+                );
+              }
+
+              final calculatedDuration =
+                  wakeTimeDate
+                      .difference(bedtimeDate)
+                      .inMinutes;
+
+              setDialogState(() {
+                selectedDuration =
+                    calculatedDuration;
+                isSaving = true;
+              });
+
+              try {
+                await SleepService.saveSleep(
+                  sleepDate:
+                      _dateOnly(now),
+                  bedtime: bedtimeDate,
+                  wakeTime: wakeTimeDate,
+                  durationMinutes:
+                      calculatedDuration,
+                  quality: quality,
+                );
+
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                }
+
+                await _loadData();
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        '😴 Sleep logged successfully.',
+                      ),
+                      backgroundColor:
+                          Color(0xFF6D4C41),
+                    ),
+                  );
+                }
+              } catch (e) {
+                setDialogState(() {
+                  isSaving = false;
+                });
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Failed to log sleep: $e',
+                      ),
+                      backgroundColor:
+                          const Color(0xFFDC2626),
+                    ),
+                  );
+                }
+              }
+            }
+
+            return AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(
+                    Icons.bedtime_rounded,
+                    color: Color(0xFF6D4C41),
+                  ),
+                  SizedBox(width: 10),
+                  Text('Log Sleep'),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 460,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment:
+                        CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        'How long did you sleep?',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _sleepRangeButton(
+                            label: '< 5h',
+                            minutes: 270,
+                            selected:
+                                selectedDuration < 300,
+                            enabled: !isSaving,
+                            onTap: () =>
+                                selectHourRange(270),
+                          ),
+                          _sleepRangeButton(
+                            label: '5–6h',
+                            minutes: 330,
+                            selected:
+                                selectedDuration >=
+                                    300 &&
+                                selectedDuration < 360,
+                            enabled: !isSaving,
+                            onTap: () =>
+                                selectHourRange(330),
+                          ),
+                          _sleepRangeButton(
+                            label: '6–7h',
+                            minutes: 390,
+                            selected:
+                                selectedDuration >=
+                                    360 &&
+                                selectedDuration < 420,
+                            enabled: !isSaving,
+                            onTap: () =>
+                                selectHourRange(390),
+                          ),
+                          _sleepRangeButton(
+                            label: '7–8h',
+                            minutes: 450,
+                            selected:
+                                selectedDuration >=
+                                    420 &&
+                                selectedDuration < 480,
+                            enabled: !isSaving,
+                            onTap: () =>
+                                selectHourRange(450),
+                          ),
+                          _sleepRangeButton(
+                            label: '8–9h',
+                            minutes: 510,
+                            selected:
+                                selectedDuration >=
+                                    480 &&
+                                selectedDuration < 540,
+                            enabled: !isSaving,
+                            onTap: () =>
+                                selectHourRange(510),
+                          ),
+                          _sleepRangeButton(
+                            label: '9h+',
+                            minutes: 600,
+                            selected:
+                                selectedDuration >= 540,
+                            enabled: !isSaving,
+                            onTap: () =>
+                                selectHourRange(600),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 18),
+
+                      const Text(
+                        'Sleep times',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed:
+                                  isSaving
+                                      ? null
+                                      : selectBedtime,
+                              icon: const Icon(
+                                Icons.nightlight_round,
+                              ),
+                              label: Text(
+                                bedtime == null
+                                    ? 'Bedtime'
+                                    : bedtime!.format(
+                                        context,
+                                      ),
+                              ),
+                              style:
+                                  OutlinedButton.styleFrom(
+                                padding:
+                                    const EdgeInsets
+                                        .symmetric(
+                                  vertical: 13,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed:
+                                  isSaving
+                                      ? null
+                                      : selectWakeTime,
+                              icon: const Icon(
+                                Icons.wb_sunny_outlined,
+                              ),
+                              label: Text(
+                                wakeTime == null
+                                    ? 'Wake time'
+                                    : wakeTime!.format(
+                                        context,
+                                      ),
+                              ),
+                              style:
+                                  OutlinedButton.styleFrom(
+                                padding:
+                                    const EdgeInsets
+                                        .symmetric(
+                                  vertical: 13,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 18),
+
+                      const Text(
+                        'Sleep quality',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      Row(
+                        mainAxisAlignment:
+                            MainAxisAlignment.spaceAround,
+                        children: [
+                          _sleepQualityButton(
+                            emoji: '😴',
+                            label: 'Poor',
+                            value: 1,
+                            selected: quality == 1,
+                            enabled: !isSaving,
+                            onTap: () {
+                              setDialogState(() {
+                                quality = 1;
+                              });
+                            },
+                          ),
+                          _sleepQualityButton(
+                            emoji: '😕',
+                            label: 'Low',
+                            value: 2,
+                            selected: quality == 2,
+                            enabled: !isSaving,
+                            onTap: () {
+                              setDialogState(() {
+                                quality = 2;
+                              });
+                            },
+                          ),
+                          _sleepQualityButton(
+                            emoji: '😐',
+                            label: 'Okay',
+                            value: 3,
+                            selected: quality == 3,
+                            enabled: !isSaving,
+                            onTap: () {
+                              setDialogState(() {
+                                quality = 3;
+                              });
+                            },
+                          ),
+                          _sleepQualityButton(
+                            emoji: '🙂',
+                            label: 'Good',
+                            value: 4,
+                            selected: quality == 4,
+                            enabled: !isSaving,
+                            onTap: () {
+                              setDialogState(() {
+                                quality = 4;
+                              });
+                            },
+                          ),
+                          _sleepQualityButton(
+                            emoji: '🤩',
+                            label: 'Great',
+                            value: 5,
+                            selected: quality == 5,
+                            enabled: !isSaving,
+                            onTap: () {
+                              setDialogState(() {
+                                quality = 5;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      if (bedtime != null &&
+                          wakeTime != null)
+                        Container(
+                          padding:
+                              const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color:
+                                const Color(0xFFF5F0ED),
+                            borderRadius:
+                                BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.timelapse_rounded,
+                                color:
+                                    Color(0xFF6D4C41),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Calculated sleep: ${_formatDuration(_calculateTimeDifference(bedtime!, wakeTime!))}',
+                                  style:
+                                      const TextStyle(
+                                    fontWeight:
+                                        FontWeight.w600,
+                                    color:
+                                        Color(0xFF5D4037),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving
+                      ? null
+                      : () =>
+                          Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton.icon(
+                  onPressed:
+                      isSaving ? null : saveSleep,
+                  icon: isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child:
+                              CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.bedtime_rounded,
+                        ),
+                  label: Text(
+                    isSaving
+                        ? 'Saving...'
+                        : 'Save Sleep',
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor:
+                        const Color(0xFF6D4C41),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ============================================================
+  // MOOD LOGGER
+  // ============================================================
+
+  Future<void> _showMoodLogger() async {
+    int selectedMood = 3;
+    String selectedMoodName = 'Okay';
+
+    final noteController = TextEditingController();
+
+    const moods = [
+      {
+        'score': 1,
+        'emoji': '😢',
+        'name': 'Very Bad',
+      },
+      {
+        'score': 2,
+        'emoji': '😕',
+        'name': 'Bad',
+      },
+      {
+        'score': 3,
+        'emoji': '😐',
+        'name': 'Okay',
+      },
+      {
+        'score': 4,
+        'emoji': '🙂',
+        'name': 'Good',
+      },
+      {
+        'score': 5,
+        'emoji': '😄',
+        'name': 'Great',
+      },
+    ];
+
+    bool isSaving = false;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> saveMood() async {
+              setDialogState(() {
+                isSaving = true;
+              });
+
+              try {
+                await MoodService.saveMood(
+                  mood: selectedMoodName,
+                  moodScore: selectedMood,
+                  note: noteController.text.trim(),
+                );
+
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                }
+
+                await _loadData();
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        '${_moodEmoji(selectedMood)} Mood logged successfully.',
+                      ),
+                      backgroundColor:
+                          const Color(0xFF7C3AED),
+                    ),
+                  );
+                }
+              } catch (e) {
+                setDialogState(() {
+                  isSaving = false;
+                });
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Failed to log mood: $e',
+                      ),
+                      backgroundColor:
+                          const Color(0xFFDC2626),
+                    ),
+                  );
+                }
+              }
+            }
+
+            return AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(
+                    Icons.mood_rounded,
+                    color: Color(0xFF7C3AED),
+                  ),
+                  SizedBox(width: 10),
+                  Text('How are you feeling?'),
+                ],
+              ),
+              content: SizedBox(
+                width: 460,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Wrap(
+                      alignment:
+                          WrapAlignment.center,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: moods.map((item) {
+                        final score =
+                            item['score'] as int;
+                        final emoji =
+                            item['emoji'] as String;
+                        final name =
+                            item['name'] as String;
+
+                        final selected =
+                            selectedMood == score;
+
+                        return InkWell(
+                          onTap: isSaving
+                              ? null
+                              : () {
+                                  setDialogState(() {
+                                    selectedMood =
+                                        score;
+                                    selectedMoodName =
+                                        name;
+                                  });
+                                },
+                          borderRadius:
+                              BorderRadius.circular(16),
+                          child: AnimatedContainer(
+                            duration:
+                                const Duration(
+                              milliseconds: 180,
+                            ),
+                            width: 70,
+                            padding:
+                                const EdgeInsets
+                                    .symmetric(
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? const Color(
+                                      0xFFF3E8FF,
+                                    )
+                                  : const Color(
+                                      0xFFFAFAF9,
+                                    ),
+                              borderRadius:
+                                  BorderRadius.circular(
+                                16,
+                              ),
+                              border: Border.all(
+                                color: selected
+                                    ? const Color(
+                                        0xFF7C3AED,
+                                      )
+                                    : const Color(
+                                        0xFFE7E5E4,
+                                      ),
+                                width:
+                                    selected ? 2 : 1,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  emoji,
+                                  style:
+                                      const TextStyle(
+                                    fontSize: 30,
+                                  ),
+                                ),
+                                const SizedBox(
+                                  height: 5,
+                                ),
+                                Text(
+                                  name,
+                                  textAlign:
+                                      TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight:
+                                        selected
+                                            ? FontWeight
+                                                .bold
+                                            : FontWeight
+                                                .w500,
+                                    color: selected
+                                        ? const Color(
+                                            0xFF6D28D9,
+                                          )
+                                        : const Color(
+                                            0xFF57534E,
+                                          ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    Text(
+                      '${_moodEmoji(selectedMood)}  $selectedMoodName',
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF6D28D9),
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    TextField(
+                      controller: noteController,
+                      enabled: !isSaving,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Note (optional)',
+                        hintText:
+                            'What is affecting your mood today?',
+                        prefixIcon: Padding(
+                          padding:
+                              EdgeInsets.only(bottom: 40),
+                          child: Icon(
+                            Icons.edit_note_rounded,
+                          ),
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving
+                      ? null
+                      : () =>
+                          Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton.icon(
+                  onPressed:
+                      isSaving ? null : saveMood,
+                  icon: isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child:
+                              CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.favorite_rounded,
+                        ),
+                  label: Text(
+                    isSaving
+                        ? 'Saving...'
+                        : 'Save Mood',
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor:
+                        const Color(0xFF7C3AED),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    noteController.dispose();
   }
 
   // ============================================================
@@ -314,12 +1128,14 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                 await _loadData();
 
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(
                     const SnackBar(
                       content: Text(
                         'Exercise logged successfully.',
                       ),
-                      backgroundColor: Color(0xFF2E7D32),
+                      backgroundColor:
+                          Color(0xFF2E7D32),
                     ),
                   );
                 }
@@ -329,12 +1145,14 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                 });
 
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(
                     SnackBar(
                       content: Text(
                         'Failed to log exercise: $e',
                       ),
-                      backgroundColor: const Color(0xFFDC2626),
+                      backgroundColor:
+                          const Color(0xFFDC2626),
                     ),
                   );
                 }
@@ -363,30 +1181,39 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                       TextField(
                         controller: workoutController,
                         enabled: !isSaving,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
+                        textInputAction:
+                            TextInputAction.next,
+                        decoration:
+                            const InputDecoration(
                           labelText: 'Workout',
-                          hintText: 'e.g. Evening Walk',
+                          hintText:
+                              'e.g. Evening Walk',
                           prefixIcon: Icon(
-                            Icons.directions_walk_rounded,
+                            Icons
+                                .directions_walk_rounded,
                           ),
-                          border: OutlineInputBorder(),
+                          border:
+                              OutlineInputBorder(),
                         ),
                       ),
                       const SizedBox(height: 14),
                       TextField(
                         controller: durationController,
                         enabled: !isSaving,
-                        keyboardType: TextInputType.number,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
+                        keyboardType:
+                            TextInputType.number,
+                        textInputAction:
+                            TextInputAction.next,
+                        decoration:
+                            const InputDecoration(
                           labelText: 'Duration',
                           hintText: 'e.g. 30',
                           suffixText: 'minutes',
                           prefixIcon: Icon(
                             Icons.timer_outlined,
                           ),
-                          border: OutlineInputBorder(),
+                          border:
+                              OutlineInputBorder(),
                         ),
                       ),
                       const SizedBox(height: 14),
@@ -394,29 +1221,37 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                         controller: caloriesController,
                         enabled: !isSaving,
                         keyboardType:
-                            const TextInputType.numberWithOptions(
+                            const TextInputType
+                                .numberWithOptions(
                           decimal: true,
                         ),
-                        textInputAction: TextInputAction.done,
-                        decoration: const InputDecoration(
-                          labelText: 'Calories Burned',
+                        textInputAction:
+                            TextInputAction.done,
+                        decoration:
+                            const InputDecoration(
+                          labelText:
+                              'Calories Burned',
                           hintText: 'e.g. 120',
                           suffixText: 'kcal',
                           prefixIcon: Icon(
-                            Icons.local_fire_department_outlined,
+                            Icons
+                                .local_fire_department_outlined,
                           ),
-                          border: OutlineInputBorder(),
+                          border:
+                              OutlineInputBorder(),
                         ),
                       ),
                       const SizedBox(height: 14),
                       DropdownButtonFormField<String>(
                         value: intensity,
-                        decoration: const InputDecoration(
+                        decoration:
+                            const InputDecoration(
                           labelText: 'Intensity',
                           prefixIcon: Icon(
                             Icons.speed_rounded,
                           ),
-                          border: OutlineInputBorder(),
+                          border:
+                              OutlineInputBorder(),
                         ),
                         items: const [
                           DropdownMenuItem(
@@ -425,7 +1260,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                           ),
                           DropdownMenuItem(
                             value: 'Moderate',
-                            child: Text('Moderate'),
+                            child:
+                                Text('Moderate'),
                           ),
                           DropdownMenuItem(
                             value: 'High',
@@ -435,9 +1271,11 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                         onChanged: isSaving
                             ? null
                             : (value) {
-                                if (value != null) {
+                                if (value !=
+                                    null) {
                                   setDialogState(() {
-                                    intensity = value;
+                                    intensity =
+                                        value;
                                   });
                                 }
                               },
@@ -450,26 +1288,32 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                 TextButton(
                   onPressed: isSaving
                       ? null
-                      : () => Navigator.pop(dialogContext),
+                      : () =>
+                          Navigator.pop(dialogContext),
                   child: const Text('Cancel'),
                 ),
                 ElevatedButton.icon(
-                  onPressed: isSaving ? null : saveExercise,
+                  onPressed:
+                      isSaving ? null : saveExercise,
                   icon: isSaving
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(
+                          child:
+                              CircularProgressIndicator(
                             strokeWidth: 2,
                             color: Colors.white,
                           ),
                         )
                       : const Icon(Icons.check),
                   label: Text(
-                    isSaving ? 'Saving...' : 'Log Exercise',
+                    isSaving
+                        ? 'Saving...'
+                        : 'Log Exercise',
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2E7D32),
+                    backgroundColor:
+                        const Color(0xFF2E7D32),
                     foregroundColor: Colors.white,
                   ),
                 ),
@@ -500,9 +1344,12 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
     final rawLogs = _todayData?['logs'];
 
     final logs = rawLogs is List
-        ? rawLogs.whereType<Map>().map(
+        ? rawLogs
+            .whereType<Map>()
+            .map(
               (item) => Map<String, dynamic>.from(item),
-            ).toList()
+            )
+            .toList()
         : <Map<String, dynamic>>[];
 
     final screenWidth =
@@ -544,7 +1391,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                       Container(
                         width: 38,
                         height: 38,
-                        decoration: const BoxDecoration(
+                        decoration:
+                            const BoxDecoration(
                           color: Color(0xFF542E13),
                           shape: BoxShape.circle,
                         ),
@@ -565,15 +1413,18 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                             'EthioNutri AI',
                             style: TextStyle(
                               fontSize: 17.5,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF542E13),
+                              fontWeight:
+                                  FontWeight.bold,
+                              color:
+                                  Color(0xFF542E13),
                             ),
                           ),
                           Text(
-                            'Today\'s Nutrition & Fasting',
+                            'Today\'s Nutrition & Wellness',
                             style: TextStyle(
                               fontSize: 11,
-                              color: Color(0xFF78716C),
+                              color:
+                                  Color(0xFF78716C),
                             ),
                           ),
                         ],
@@ -584,22 +1435,26 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
 
                 if (isWide)
                   const Padding(
-                    padding: EdgeInsets.symmetric(
+                    padding:
+                        EdgeInsets.symmetric(
                       horizontal: 16,
                     ),
                     child: Text(
-                      'Food Logging & Nutrition',
+                      'Food Logging & Wellness',
                       style: TextStyle(
                         fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF8D4F28),
+                        fontWeight:
+                            FontWeight.bold,
+                        color:
+                            Color(0xFF8D4F28),
                       ),
                     ),
                   ),
 
                 if (isWide)
                   Row(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisSize:
+                        MainAxisSize.min,
                     children: [
                       _circleButton(
                         Icons.chat_bubble_outline_rounded,
@@ -610,13 +1465,15 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                                 const AiChatScreen(),
                           ),
                         ),
-                        tooltip: 'AI Nutrition Chat',
+                        tooltip:
+                            'AI Nutrition Chat',
                         badgeColor:
                             const Color(0xFF16A34A),
                       ),
                       const SizedBox(width: 7),
                       _circleButton(
-                        Icons.workspace_premium_outlined,
+                        Icons
+                            .workspace_premium_outlined,
                         () => Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -624,7 +1481,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                                 const ChapaPaymentScreen(),
                           ),
                         ),
-                        tooltip: 'Upgrade to Premium',
+                        tooltip:
+                            'Upgrade to Premium',
                         iconColor:
                             const Color(0xFFB45309),
                         backgroundColor:
@@ -632,7 +1490,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                       ),
                       const SizedBox(width: 7),
                       _circleButton(
-                        Icons.medical_services_outlined,
+                        Icons
+                            .medical_services_outlined,
                         () => Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -640,7 +1499,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                                 const NutritionistScreen(),
                           ),
                         ),
-                        tooltip: 'Dietitian Supervision',
+                        tooltip:
+                            'Dietitian Supervision',
                       ),
                       const SizedBox(width: 7),
                       _circleButton(
@@ -651,14 +1511,18 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                             builder: (_) =>
                                 const FoodScannerScreen(),
                           ),
-                        ).then((_) => _loadData()),
-                        tooltip: 'AI Food Scanner',
+                        ).then(
+                          (_) => _loadData(),
+                        ),
+                        tooltip:
+                            'AI Food Scanner',
                       ),
                       const SizedBox(width: 7),
                       _circleButton(
                         Icons.refresh_rounded,
                         _loadData,
-                        tooltip: 'Refresh Dashboard',
+                        tooltip:
+                            'Refresh Dashboard',
                       ),
                     ],
                   )
@@ -666,7 +1530,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                   _circleButton(
                     Icons.refresh_rounded,
                     _loadData,
-                    tooltip: 'Refresh Dashboard',
+                    tooltip:
+                        'Refresh Dashboard',
                   ),
               ],
             ),
@@ -690,7 +1555,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               child: SingleChildScrollView(
                 physics:
                     const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.symmetric(
+                padding:
+                    const EdgeInsets.symmetric(
                   horizontal: 20,
                   vertical: 16,
                 ),
@@ -710,7 +1576,7 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                                   .spaceBetween,
                           children: [
                             const Text(
-                              'Food Logging',
+                              'Today\'s Wellness',
                               style: TextStyle(
                                 fontSize: 24,
                                 fontWeight:
@@ -725,23 +1591,25 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                                 color:
                                     Color(0xFF542E13),
                               ),
-                              onPressed: _loadData,
+                              onPressed:
+                                  _loadData,
                             ),
                           ],
                         ),
                       ),
 
-                    // SEARCH LOGGED FOODS
                     _buildSearchFilter(),
 
                     const SizedBox(height: 16),
 
-                    // QUICK ACTIONS
                     _buildQuickActionCards(),
 
                     const SizedBox(height: 20),
 
-                    // EXERCISE
+                    _buildSleepMoodCard(),
+
+                    const SizedBox(height: 20),
+
                     _buildTodayExerciseCard(),
 
                     const SizedBox(height: 20),
@@ -749,19 +1617,24 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                     if (isWide)
                       Row(
                         crossAxisAlignment:
-                            CrossAxisAlignment.start,
+                            CrossAxisAlignment
+                                .start,
                         children: [
                           Expanded(
                             flex: 13,
                             child: Column(
                               children: [
-                                if (_fastingStatus != null)
+                                if (_fastingStatus !=
+                                    null)
                                   _buildFastingBanner(
                                     _fastingStatus!,
                                   ),
 
-                                if (_fastingStatus != null)
-                                  const SizedBox(height: 16),
+                                if (_fastingStatus !=
+                                    null)
+                                  const SizedBox(
+                                    height: 16,
+                                  ),
 
                                 _buildFoodLogsCard(
                                   filteredLogs,
@@ -769,12 +1642,11 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                               ],
                             ),
                           ),
-
                           const SizedBox(width: 20),
-
                           Expanded(
                             flex: 9,
-                            child: _buildDailyTotalsCard(
+                            child:
+                                _buildDailyTotalsCard(
                               totals,
                             ),
                           ),
@@ -787,15 +1659,12 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                             totals,
                           ),
                           const SizedBox(height: 16),
-
                           if (_fastingStatus != null)
                             _buildFastingBanner(
                               _fastingStatus!,
                             ),
-
                           if (_fastingStatus != null)
                             const SizedBox(height: 16),
-
                           _buildFoodLogsCard(
                             filteredLogs,
                           ),
@@ -811,10 +1680,12 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
         onPressed: () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => const FoodSearchScreen(),
+            builder: (_) =>
+                const FoodSearchScreen(),
           ),
         ).then((_) => _loadData()),
-        backgroundColor: const Color(0xFF542E13),
+        backgroundColor:
+            const Color(0xFF542E13),
         foregroundColor: Colors.white,
         icon: const Icon(Icons.search),
         label: const Text(
@@ -836,12 +1707,14 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
       height: 46,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius:
+            BorderRadius.circular(24),
         border: Border.all(
           color: const Color(0xFFEADBCE),
         ),
       ),
-      padding: const EdgeInsets.symmetric(
+      padding:
+          const EdgeInsets.symmetric(
         horizontal: 14,
       ),
       child: Row(
@@ -854,13 +1727,16 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: TextField(
-              controller: _searchController,
+              controller:
+                  _searchController,
               onChanged: (value) {
                 setState(() {
-                  _foodSearch = value.trim().toLowerCase();
+                  _foodSearch =
+                      value.trim().toLowerCase();
                 });
               },
-              decoration: const InputDecoration(
+              decoration:
+                  const InputDecoration(
                 hintText:
                     'Search today\'s logged foods...',
                 border: InputBorder.none,
@@ -868,7 +1744,9 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               ),
             ),
           ),
-          if (_searchController.text.isNotEmpty)
+          if (_searchController
+              .text
+              .isNotEmpty)
             IconButton(
               icon: const Icon(
                 Icons.clear,
@@ -899,7 +1777,9 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               .toString()
               .toLowerCase();
 
-      return foodName.contains(_foodSearch);
+      return foodName.contains(
+        _foodSearch,
+      );
     }).toList();
   }
 
@@ -912,7 +1792,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
       builder: (context, constraints) {
         final cards = [
           _quickActionCard(
-            icon: Icons.mic_none_rounded,
+            icon:
+                Icons.mic_none_rounded,
             iconBackground:
                 const Color(0xFFF5EBE1),
             iconColor:
@@ -920,16 +1801,20 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
             title: 'Voice Log',
             subtitle:
                 'AI Speech Transcription',
-            onTap: () => Navigator.push(
+            onTap: () =>
+                Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) =>
                     const FoodScannerScreen(),
               ),
-            ).then((_) => _loadData()),
+            ).then(
+              (_) => _loadData(),
+            ),
           ),
           _quickActionCard(
-            icon: Icons.edit_outlined,
+            icon:
+                Icons.edit_outlined,
             iconBackground:
                 const Color(0xFFFDECE3),
             iconColor:
@@ -937,13 +1822,16 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
             title: 'Manual Entry',
             subtitle:
                 'Search & Log Food',
-            onTap: () => Navigator.push(
+            onTap: () =>
+                Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) =>
                     const FoodSearchScreen(),
               ),
-            ).then((_) => _loadData()),
+            ).then(
+              (_) => _loadData(),
+            ),
           ),
           _quickActionCard(
             icon:
@@ -958,6 +1846,32 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
             onTap:
                 _showExerciseLogger,
           ),
+          _quickActionCard(
+            icon:
+                Icons.bedtime_rounded,
+            iconBackground:
+                const Color(0xFFF5F0ED),
+            iconColor:
+                const Color(0xFF6D4C41),
+            title: 'Sleep',
+            subtitle:
+                'Log Sleep Hours',
+            onTap:
+                _showSleepLogger,
+          ),
+          _quickActionCard(
+            icon:
+                Icons.mood_rounded,
+            iconBackground:
+                const Color(0xFFF3E8FF),
+            iconColor:
+                const Color(0xFF7C3AED),
+            title: 'Mood',
+            subtitle:
+                'How Are You Feeling?',
+            onTap:
+                _showMoodLogger,
+          ),
         ];
 
         if (constraints.maxWidth < 650) {
@@ -968,8 +1882,27 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                 .map(
                   (card) => SizedBox(
                     width:
-                        (constraints.maxWidth - 14) /
+                        (constraints.maxWidth -
+                                14) /
                             2,
+                    child: card,
+                  ),
+                )
+                .toList(),
+          );
+        }
+
+        if (constraints.maxWidth < 1000) {
+          return Wrap(
+            spacing: 14,
+            runSpacing: 14,
+            children: cards
+                .map(
+                  (card) => SizedBox(
+                    width:
+                        (constraints.maxWidth -
+                                28) /
+                            3,
                     child: card,
                   ),
                 )
@@ -979,11 +1912,15 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
 
         return Row(
           children: [
-            Expanded(child: cards[0]),
-            const SizedBox(width: 14),
-            Expanded(child: cards[1]),
-            const SizedBox(width: 14),
-            Expanded(child: cards[2]),
+            for (int i = 0;
+                i < cards.length;
+                i++) ...[
+              Expanded(
+                child: cards[i],
+              ),
+              if (i != cards.length - 1)
+                const SizedBox(width: 14),
+            ],
           ],
         );
       },
@@ -1000,23 +1937,29 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
   }) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius:
+          BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.symmetric(
+        padding:
+            const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 18,
         ),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius:
+              BorderRadius.circular(20),
           border: Border.all(
-            color: const Color(0xFFEADBCE),
+            color:
+                const Color(0xFFEADBCE),
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.03),
+              color: Colors.black
+                  .withOpacity(0.03),
               blurRadius: 10,
-              offset: const Offset(0, 4),
+              offset:
+                  const Offset(0, 4),
             ),
           ],
         ),
@@ -1025,7 +1968,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
             Container(
               width: 44,
               height: 44,
-              decoration: BoxDecoration(
+              decoration:
+                  BoxDecoration(
                 color: iconBackground,
                 shape: BoxShape.circle,
               ),
@@ -1038,21 +1982,336 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
             const SizedBox(height: 10),
             Text(
               title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
+              textAlign:
+                  TextAlign.center,
+              style:
+                  const TextStyle(
                 fontSize: 15,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1C1917),
+                fontWeight:
+                    FontWeight.bold,
+                color:
+                    Color(0xFF1C1917),
               ),
             ),
             const SizedBox(height: 2),
             Text(
               subtitle,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
+              textAlign:
+                  TextAlign.center,
+              style:
+                  const TextStyle(
                 fontSize: 12,
-                color: Color(0xFF78716C),
+                color:
+                    Color(0xFF78716C),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // SLEEP + MOOD CARD
+  // ============================================================
+
+  Widget _buildSleepMoodCard() {
+    final latestMood =
+        _todayMood.isNotEmpty
+            ? _todayMood.first
+            : null;
+
+    final sleepDuration =
+        _todaySleep?['durationMinutes'];
+
+    final sleepQuality =
+        _todaySleep?['quality'];
+
+    final sleepMinutes =
+        sleepDuration is num
+            ? sleepDuration.toInt()
+            : 0;
+
+    final moodScore =
+        latestMood?['moodScore'];
+
+    final moodName =
+        latestMood?['mood']
+                ?.toString() ??
+            '';
+
+    return Container(
+      padding:
+          const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius:
+            BorderRadius.circular(20),
+        border: Border.all(
+          color:
+              const Color(0xFFEADBCE),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black
+                .withOpacity(0.03),
+            blurRadius: 12,
+            offset:
+                const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration:
+                    const BoxDecoration(
+                  color:
+                      Color(0xFFF5F0ED),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.self_improvement_rounded,
+                  color:
+                      Color(0xFF6D4C41),
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Today\'s Wellness',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight:
+                            FontWeight.bold,
+                        color:
+                            Color(0xFF1C1917),
+                      ),
+                    ),
+                    Text(
+                      'Sleep and mood tracking',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color:
+                            Color(0xFF78716C),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          LayoutBuilder(
+            builder:
+                (context, constraints) {
+              final sleepCard =
+                  _wellnessSummaryCard(
+                icon:
+                    Icons.bedtime_rounded,
+                emoji: '😴',
+                title: 'Sleep',
+                value:
+                    _todaySleep == null
+                        ? 'Not logged'
+                        : SleepService
+                            .formatDuration(
+                            sleepMinutes,
+                          ),
+                subtitle:
+                    _todaySleep == null
+                        ? 'Tap to log'
+                        : 'Quality ${sleepQuality ?? 3}/5',
+                color:
+                    const Color(0xFF6D4C41),
+                onTap:
+                    _showSleepLogger,
+              );
+
+              final moodCard =
+                  _wellnessSummaryCard(
+                icon:
+                    Icons.mood_rounded,
+                emoji:
+                    latestMood == null
+                        ? '🙂'
+                        : _moodEmoji(
+                            moodScore is num
+                                ? moodScore
+                                    .toInt()
+                                : 3,
+                          ),
+                title: 'Mood',
+                value:
+                    latestMood == null
+                        ? 'Not logged'
+                        : moodName,
+                subtitle:
+                    latestMood == null
+                        ? 'Tap to log'
+                        : 'Score ${moodScore ?? 3}/5',
+                color:
+                    const Color(0xFF7C3AED),
+                onTap:
+                    _showMoodLogger,
+              );
+
+              if (constraints.maxWidth <
+                  600) {
+                return Column(
+                  children: [
+                    sleepCard,
+                    const SizedBox(height: 10),
+                    moodCard,
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(
+                    child: sleepCard,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: moodCard,
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _wellnessSummaryCard({
+    required IconData icon,
+    required String emoji,
+    required String title,
+    required String value,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius:
+          BorderRadius.circular(16),
+      child: Container(
+        padding:
+            const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color:
+              const Color(0xFFFAFAF9),
+          borderRadius:
+              BorderRadius.circular(16),
+          border: Border.all(
+            color:
+                const Color(0xFFE7E5E4),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration:
+                  BoxDecoration(
+                color:
+                    color.withOpacity(
+                  0.08,
+                ),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Text(
+                  emoji,
+                  style:
+                      const TextStyle(
+                    fontSize: 24,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment
+                        .start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        icon,
+                        size: 15,
+                        color: color,
+                      ),
+                      const SizedBox(
+                        width: 5,
+                      ),
+                      Text(
+                        title,
+                        style:
+                            TextStyle(
+                          fontSize: 12,
+                          fontWeight:
+                              FontWeight.bold,
+                          color: color,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(
+                    height: 4,
+                  ),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow:
+                        TextOverflow.ellipsis,
+                    style:
+                        const TextStyle(
+                      fontSize: 15,
+                      fontWeight:
+                          FontWeight.bold,
+                      color:
+                          Color(0xFF1C1917),
+                    ),
+                  ),
+                  const SizedBox(
+                    height: 2,
+                  ),
+                  Text(
+                    subtitle,
+                    style:
+                        const TextStyle(
+                      fontSize: 11,
+                      color:
+                          Color(0xFF78716C),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color:
+                  Color(0xFFA8A29E),
             ),
           ],
         ),
@@ -1094,18 +2353,23 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
     );
 
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding:
+          const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius:
+            BorderRadius.circular(20),
         border: Border.all(
-          color: const Color(0xFFEADBCE),
+          color:
+              const Color(0xFFEADBCE),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black
+                .withOpacity(0.03),
             blurRadius: 12,
-            offset: const Offset(0, 4),
+            offset:
+                const Offset(0, 4),
           ),
         ],
       ),
@@ -1118,13 +2382,17 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               Container(
                 width: 38,
                 height: 38,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFE8F5E9),
+                decoration:
+                    const BoxDecoration(
+                  color:
+                      Color(0xFFE8F5E9),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
-                  Icons.fitness_center_rounded,
-                  color: Color(0xFF2E7D32),
+                  Icons
+                      .fitness_center_rounded,
+                  color:
+                      Color(0xFF2E7D32),
                   size: 20,
                 ),
               ),
@@ -1132,45 +2400,58 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               const Expanded(
                 child: Column(
                   crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                      CrossAxisAlignment
+                          .start,
                   children: [
                     Text(
                       'Today\'s Exercise',
                       style: TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1C1917),
+                        fontWeight:
+                            FontWeight.bold,
+                        color:
+                            Color(0xFF1C1917),
                       ),
                     ),
                     Text(
                       'Your activity for today',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Color(0xFF78716C),
+                        color:
+                            Color(0xFF78716C),
                       ),
                     ),
                   ],
                 ),
               ),
-              if (_todayExercises.isNotEmpty)
+              if (_todayExercises
+                  .isNotEmpty)
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(
+                      const EdgeInsets
+                          .symmetric(
                     horizontal: 10,
                     vertical: 6,
                   ),
-                  decoration: BoxDecoration(
+                  decoration:
+                      BoxDecoration(
                     color:
-                        const Color(0xFFE8F5E9),
+                        const Color(
+                            0xFFE8F5E9),
                     borderRadius:
-                        BorderRadius.circular(14),
+                        BorderRadius.circular(
+                      14,
+                    ),
                   ),
                   child: Text(
                     '$totalMinutes min',
-                    style: const TextStyle(
+                    style:
+                        const TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF2E7D32),
+                      fontWeight:
+                          FontWeight.bold,
+                      color:
+                          Color(0xFF2E7D32),
                     ),
                   ),
                 ),
@@ -1179,28 +2460,42 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
           const SizedBox(height: 14),
           if (_todayExercises.isEmpty)
             Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFAFAF9),
+              padding:
+                  const EdgeInsets.all(16),
+              decoration:
+                  BoxDecoration(
+                color:
+                    const Color(0xFFFAFAF9),
                 borderRadius:
-                    BorderRadius.circular(14),
+                    BorderRadius.circular(
+                  14,
+                ),
                 border: Border.all(
-                  color: const Color(0xFFE7E5E4),
+                  color:
+                      const Color(
+                          0xFFE7E5E4),
                 ),
               ),
               child: Row(
                 children: [
                   const Icon(
-                    Icons.directions_run_outlined,
-                    color: Color(0xFF78716C),
+                    Icons
+                        .directions_run_outlined,
+                    color:
+                        Color(0xFF78716C),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(
+                    width: 10,
+                  ),
                   const Expanded(
                     child: Text(
                       'No exercise logged today.',
-                      style: TextStyle(
+                      style:
+                          TextStyle(
                         fontSize: 13,
-                        color: Color(0xFF78716C),
+                        color:
+                            Color(
+                                0xFF78716C),
                       ),
                     ),
                   ),
@@ -1211,7 +2506,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                       Icons.add,
                       size: 18,
                     ),
-                    label: const Text('Log'),
+                    label:
+                        const Text('Log'),
                   ),
                 ],
               ),
@@ -1227,10 +2523,13 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               children: [
                 Text(
                   '${totalCalories.toStringAsFixed(0)} kcal burned',
-                  style: const TextStyle(
+                  style:
+                      const TextStyle(
                     fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2E7D32),
+                    fontWeight:
+                        FontWeight.bold,
+                    color:
+                        Color(0xFF2E7D32),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1242,7 +2541,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                     size: 18,
                   ),
                   label:
-                      const Text('Log More'),
+                      const Text(
+                          'Log More'),
                 ),
               ],
             ),
@@ -1283,13 +2583,20 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
 
     return Container(
       margin:
-          const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFAFAF9),
-        borderRadius: BorderRadius.circular(14),
+          const EdgeInsets.only(
+        bottom: 8,
+      ),
+      padding:
+          const EdgeInsets.all(12),
+      decoration:
+          BoxDecoration(
+        color:
+            const Color(0xFFFAFAF9),
+        borderRadius:
+            BorderRadius.circular(14),
         border: Border.all(
-          color: const Color(0xFFE7E5E4),
+          color:
+              const Color(0xFFE7E5E4),
         ),
       ),
       child: Row(
@@ -1297,13 +2604,17 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
           Container(
             width: 42,
             height: 42,
-            decoration: const BoxDecoration(
-              color: Color(0xFFE8F5E9),
+            decoration:
+                const BoxDecoration(
+              color:
+                  Color(0xFFE8F5E9),
               shape: BoxShape.circle,
             ),
             child: const Icon(
-              Icons.directions_run_rounded,
-              color: Color(0xFF2E7D32),
+              Icons
+                  .directions_run_rounded,
+              color:
+                  Color(0xFF2E7D32),
               size: 22,
             ),
           ),
@@ -1318,10 +2629,13 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                   maxLines: 1,
                   overflow:
                       TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style:
+                      const TextStyle(
                     fontSize: 13.5,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1C1917),
+                    fontWeight:
+                        FontWeight.bold,
+                    color:
+                        Color(0xFF1C1917),
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -1329,9 +2643,11 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                   intensity.isEmpty
                       ? '$duration min'
                       : '$duration min • $intensity',
-                  style: const TextStyle(
+                  style:
+                      const TextStyle(
                     fontSize: 11.5,
-                    color: Color(0xFF78716C),
+                    color:
+                        Color(0xFF78716C),
                   ),
                 ),
               ],
@@ -1340,10 +2656,13 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
           const SizedBox(width: 10),
           Text(
             '${calories.toStringAsFixed(0)} kcal',
-            style: const TextStyle(
+            style:
+                const TextStyle(
               fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF2E7D32),
+              fontWeight:
+                  FontWeight.bold,
+              color:
+                  Color(0xFF2E7D32),
             ),
           ),
         ],
@@ -1377,18 +2696,23 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
     }).toList();
 
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding:
+          const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius:
+            BorderRadius.circular(20),
         border: Border.all(
-          color: const Color(0xFFEADBCE),
+          color:
+              const Color(0xFFEADBCE),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black
+                .withOpacity(0.03),
             blurRadius: 12,
-            offset: const Offset(0, 4),
+            offset:
+                const Offset(0, 4),
           ),
         ],
       ),
@@ -1401,14 +2725,21 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               Container(
                 width: 34,
                 height: 34,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF5EBE1),
+                decoration:
+                    BoxDecoration(
+                  color:
+                      const Color(
+                          0xFFF5EBE1),
                   borderRadius:
-                      BorderRadius.circular(9),
+                      BorderRadius.circular(
+                    9,
+                  ),
                 ),
                 child: const Icon(
-                  Icons.restaurant_menu_rounded,
-                  color: Color(0xFF8D4F28),
+                  Icons
+                      .restaurant_menu_rounded,
+                  color:
+                      Color(0xFF8D4F28),
                   size: 20,
                 ),
               ),
@@ -1416,85 +2747,108 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               const Expanded(
                 child: Column(
                   crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                      CrossAxisAlignment
+                          .start,
                   children: [
                     Text(
                       'Today\'s Food Logs',
                       style: TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1C1917),
+                        fontWeight:
+                            FontWeight.bold,
+                        color:
+                            Color(0xFF1C1917),
                       ),
                     ),
                     Text(
                       'Real food entries from your account',
                       style: TextStyle(
                         fontSize: 11.5,
-                        color: Color(0xFF78716C),
+                        color:
+                            Color(0xFF78716C),
                       ),
                     ),
                   ],
                 ),
               ),
               OutlinedButton.icon(
-                onPressed: () => Navigator.push(
+                onPressed: () =>
+                    Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) =>
                         const FoodSearchScreen(),
                   ),
-                ).then((_) => _loadData()),
+                ).then(
+                  (_) => _loadData(),
+                ),
                 icon: const Icon(
                   Icons.add,
                   size: 17,
                 ),
-                label: const Text('Add Food'),
-                style: OutlinedButton.styleFrom(
+                label:
+                    const Text('Add Food'),
+                style:
+                    OutlinedButton.styleFrom(
                   foregroundColor:
-                      const Color(0xFF542E13),
-                  side: const BorderSide(
-                    color: Color(0xFF542E13),
+                      const Color(
+                          0xFF542E13),
+                  side:
+                      const BorderSide(
+                    color:
+                        Color(0xFF542E13),
                   ),
                 ),
               ),
             ],
           ),
-
           const SizedBox(height: 14),
-
           if (foodLogs.isEmpty)
             _buildEmptyFoodState()
           else
             ...foodLogs.map(
               _buildFoodLogItem,
             ),
-
           if (waterLogs.isNotEmpty) ...[
             const SizedBox(height: 14),
             Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF0F9FF),
+              padding:
+                  const EdgeInsets.all(12),
+              decoration:
+                  BoxDecoration(
+                color:
+                    const Color(
+                        0xFFF0F9FF),
                 borderRadius:
-                    BorderRadius.circular(14),
+                    BorderRadius.circular(
+                  14,
+                ),
                 border: Border.all(
-                  color: const Color(0xFFBAE6FD),
+                  color:
+                      const Color(
+                          0xFFBAE6FD),
                 ),
               ),
               child: Row(
                 children: [
                   const Icon(
-                    Icons.water_drop_rounded,
-                    color: Color(0xFF0284C7),
+                    Icons
+                        .water_drop_rounded,
+                    color:
+                        Color(0xFF0284C7),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       '${_sumWaterLogs(waterLogs)} ml logged as water',
-                      style: const TextStyle(
+                      style:
+                          const TextStyle(
                         fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF075985),
+                        fontWeight:
+                            FontWeight.w600,
+                        color:
+                            Color(
+                                0xFF075985),
                       ),
                     ),
                   ),
@@ -1509,12 +2863,17 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
 
   Widget _buildEmptyFoodState() {
     return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFAFAF9),
-        borderRadius: BorderRadius.circular(14),
+      padding:
+          const EdgeInsets.all(20),
+      decoration:
+          BoxDecoration(
+        color:
+            const Color(0xFFFAFAF9),
+        borderRadius:
+            BorderRadius.circular(14),
         border: Border.all(
-          color: const Color(0xFFE7E5E4),
+          color:
+              const Color(0xFFE7E5E4),
         ),
       ),
       child: Column(
@@ -1522,36 +2881,48 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
           const Icon(
             Icons.restaurant_outlined,
             size: 36,
-            color: Color(0xFFA8A29E),
+            color:
+                Color(0xFFA8A29E),
           ),
           const SizedBox(height: 8),
           const Text(
             'No food logged today.',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF44403C),
+            style:
+                TextStyle(
+              fontWeight:
+                  FontWeight.bold,
+              color:
+                  Color(0xFF44403C),
             ),
           ),
           const SizedBox(height: 4),
           const Text(
             'Search for a food or add a meal to see it here.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
+            textAlign:
+                TextAlign.center,
+            style:
+                TextStyle(
               fontSize: 12,
-              color: Color(0xFF78716C),
+              color:
+                  Color(0xFF78716C),
             ),
           ),
           const SizedBox(height: 10),
           OutlinedButton.icon(
-            onPressed: () => Navigator.push(
+            onPressed: () =>
+                Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) =>
                     const FoodSearchScreen(),
               ),
-            ).then((_) => _loadData()),
-            icon: const Icon(Icons.search),
-            label: const Text('Search Food'),
+            ).then(
+              (_) => _loadData(),
+            ),
+            icon:
+                const Icon(Icons.search),
+            label:
+                const Text('Search Food'),
           ),
         ],
       ),
@@ -1562,23 +2933,32 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
     Map<String, dynamic> log,
   ) {
     final foodName =
-        (log['foodName'] ?? 'Food')
+        (log['foodName'] ??
+                'Food')
             .toString();
 
     final portion =
-        _number(log['portionGrams']);
+        _number(
+      log['portionGrams'],
+    );
 
     final calories =
         _number(log['calories']);
 
     final protein =
-        _number(log['proteinGrams']);
+        _number(
+      log['proteinGrams'],
+    );
 
     final carbs =
-        _number(log['carbsGrams']);
+        _number(
+      log['carbsGrams'],
+    );
 
     final fats =
-        _number(log['fatsGrams']);
+        _number(
+      log['fatsGrams'],
+    );
 
     final logType =
         (log['logType'] ?? '')
@@ -1586,13 +2966,20 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
 
     return Container(
       margin:
-          const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFBF8F4),
-        borderRadius: BorderRadius.circular(14),
+          const EdgeInsets.only(
+        bottom: 10,
+      ),
+      padding:
+          const EdgeInsets.all(13),
+      decoration:
+          BoxDecoration(
+        color:
+            const Color(0xFFFBF8F4),
+        borderRadius:
+            BorderRadius.circular(14),
         border: Border.all(
-          color: const Color(0xFFEFE8DF),
+          color:
+              const Color(0xFFEFE8DF),
         ),
       ),
       child: Column(
@@ -1604,41 +2991,58 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               Container(
                 width: 46,
                 height: 46,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEADBCE),
+                decoration:
+                    BoxDecoration(
+                  color:
+                      const Color(
+                          0xFFEADBCE),
                   borderRadius:
-                      BorderRadius.circular(10),
+                      BorderRadius.circular(
+                    10,
+                  ),
                 ),
                 child: const Icon(
                   Icons.restaurant,
-                  color: Color(0xFF8D4F28),
+                  color:
+                      Color(0xFF8D4F28),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                      CrossAxisAlignment
+                          .start,
                   children: [
                     Text(
                       foodName,
                       maxLines: 2,
                       overflow:
-                          TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
+                          TextOverflow
+                              .ellipsis,
+                      style:
+                          const TextStyle(
+                        fontWeight:
+                            FontWeight.bold,
                         fontSize: 13.5,
-                        color: Color(0xFF1C1917),
+                        color:
+                            Color(
+                                0xFF1C1917),
                       ),
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(
+                      height: 3,
+                    ),
                     Text(
                       portion > 0
                           ? '${_formatNumber(portion)} g'
                           : logType,
-                      style: const TextStyle(
+                      style:
+                          const TextStyle(
                         fontSize: 11.5,
-                        color: Color(0xFF78716C),
+                        color:
+                            Color(
+                                0xFF78716C),
                       ),
                     ),
                   ],
@@ -1647,17 +3051,18 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               const SizedBox(width: 8),
               Text(
                 '${_formatNumber(calories)} kcal',
-                style: const TextStyle(
+                style:
+                    const TextStyle(
                   fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF8D4F28),
+                  fontWeight:
+                      FontWeight.bold,
+                  color:
+                      Color(0xFF8D4F28),
                 ),
               ),
             ],
           ),
-
           const SizedBox(height: 10),
-
           Wrap(
             spacing: 8,
             runSpacing: 6,
@@ -1665,17 +3070,20 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               _macroBadge(
                 '${_formatNumber(protein)}g',
                 'P',
-                const Color(0xFF8D4F28),
+                const Color(
+                    0xFF8D4F28),
               ),
               _macroBadge(
                 '${_formatNumber(carbs)}g',
                 'C',
-                const Color(0xFF2563EB),
+                const Color(
+                    0xFF2563EB),
               ),
               _macroBadge(
                 '${_formatNumber(fats)}g',
                 'F',
-                const Color(0xFFD97706),
+                const Color(
+                    0xFFD97706),
               ),
             ],
           ),
@@ -1690,7 +3098,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
     return logs.fold<double>(
       0,
       (sum, log) {
-        final value = log['waterMl'];
+        final value =
+            log['waterMl'];
 
         return sum +
             (value is num
@@ -1711,30 +3120,43 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
         _number(totals['calories']);
 
     final protein =
-        _number(totals['proteinGrams']);
+        _number(
+      totals['proteinGrams'],
+    );
 
     final carbs =
-        _number(totals['carbsGrams']);
+        _number(
+      totals['carbsGrams'],
+    );
 
     final fats =
-        _number(totals['fatsGrams']);
+        _number(
+      totals['fatsGrams'],
+    );
 
     final water =
-        _number(totals['waterMl']);
+        _number(
+      totals['waterMl'],
+    );
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding:
+          const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius:
+            BorderRadius.circular(20),
         border: Border.all(
-          color: const Color(0xFFEADBCE),
+          color:
+              const Color(0xFFEADBCE),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black
+                .withOpacity(0.03),
             blurRadius: 12,
-            offset: const Offset(0, 4),
+            offset:
+                const Offset(0, 4),
           ),
         ],
       ),
@@ -1747,14 +3169,17 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               const Expanded(
                 child: Column(
                   crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                      CrossAxisAlignment
+                          .start,
                   children: [
                     Text(
                       'Today\'s Totals',
                       style: TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1C1917),
+                        fontWeight:
+                            FontWeight.bold,
+                        color:
+                            Color(0xFF1C1917),
                       ),
                     ),
                     SizedBox(height: 2),
@@ -1762,7 +3187,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                       'Actual values from your food logs',
                       style: TextStyle(
                         fontSize: 11.5,
-                        color: Color(0xFF78716C),
+                        color:
+                            Color(0xFF78716C),
                       ),
                     ),
                   ],
@@ -1770,86 +3196,106 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               ),
               IconButton(
                 icon: const Icon(
-                  Icons.water_drop_rounded,
-                  color: Color(0xFF0284C7),
+                  Icons
+                      .water_drop_rounded,
+                  color:
+                      Color(0xFF0284C7),
                 ),
-                tooltip: 'Log water',
-                onPressed: _showWaterLogger,
+                tooltip:
+                    'Log water',
+                onPressed:
+                    _showWaterLogger,
               ),
             ],
           ),
-
           const SizedBox(height: 18),
-
           Center(
             child: Column(
               children: [
                 Text(
-                  _formatNumber(calories),
-                  style: const TextStyle(
+                  _formatNumber(
+                      calories),
+                  style:
+                      const TextStyle(
                     fontSize: 34,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF542E13),
+                    fontWeight:
+                        FontWeight.bold,
+                    color:
+                        Color(0xFF542E13),
                   ),
                 ),
                 const Text(
                   'kcal consumed',
-                  style: TextStyle(
+                  style:
+                      TextStyle(
                     fontSize: 11,
-                    color: Color(0xFF78716C),
+                    color:
+                        Color(0xFF78716C),
                   ),
                 ),
               ],
             ),
           ),
-
           const SizedBox(height: 22),
-
           Wrap(
-            alignment: WrapAlignment.spaceAround,
+            alignment:
+                WrapAlignment
+                    .spaceAround,
             spacing: 18,
             runSpacing: 18,
             children: [
               _macroProgressItem(
                 'Protein',
                 '${_formatNumber(protein)}g',
-                const Color(0xFF8D4F28),
+                const Color(
+                    0xFF8D4F28),
               ),
               _macroProgressItem(
                 'Carbs',
                 '${_formatNumber(carbs)}g',
-                const Color(0xFF2563EB),
+                const Color(
+                    0xFF2563EB),
               ),
               _macroProgressItem(
                 'Fats',
                 '${_formatNumber(fats)}g',
-                const Color(0xFFD97706),
+                const Color(
+                    0xFFD97706),
               ),
               _macroProgressItem(
                 'Water',
                 '${_formatNumber(water)}ml',
-                const Color(0xFF0284C7),
+                const Color(
+                    0xFF0284C7),
               ),
             ],
           ),
-
           const SizedBox(height: 20),
-
           Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFAFAF9),
-              borderRadius: BorderRadius.circular(14),
+            padding:
+                const EdgeInsets.all(12),
+            decoration:
+                BoxDecoration(
+              color:
+                  const Color(0xFFFAFAF9),
+              borderRadius:
+                  BorderRadius.circular(
+                14,
+              ),
               border: Border.all(
-                color: const Color(0xFFE7E5E4),
+                color:
+                    const Color(
+                        0xFFE7E5E4),
               ),
             ),
             child: const Text(
               'Nutrition targets are not displayed here because the current API does not provide personalized daily targets.',
-              style: TextStyle(
+              style:
+                  TextStyle(
                 fontSize: 11.5,
                 height: 1.4,
-                color: Color(0xFF78716C),
+                color:
+                    Color(0xFF78716C),
               ),
             ),
           ),
@@ -1864,22 +3310,26 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
     Color color,
   ) {
     return Column(
-      mainAxisSize: MainAxisSize.min,
+      mainAxisSize:
+          MainAxisSize.min,
       children: [
         Text(
           value,
           style: TextStyle(
             fontSize: 14,
-            fontWeight: FontWeight.bold,
+            fontWeight:
+                FontWeight.bold,
             color: color,
           ),
         ),
         const SizedBox(height: 2),
         Text(
           label,
-          style: const TextStyle(
+          style:
+              const TextStyle(
             fontSize: 11.5,
-            color: Color(0xFF78716C),
+            color:
+                Color(0xFF78716C),
           ),
         ),
       ],
@@ -1892,13 +3342,19 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
     Color color,
   ) {
     return Container(
-      padding: const EdgeInsets.symmetric(
+      padding:
+          const EdgeInsets.symmetric(
         horizontal: 8,
         vertical: 5,
       ),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.07),
-        borderRadius: BorderRadius.circular(8),
+      decoration:
+          BoxDecoration(
+        color:
+            color.withOpacity(0.07),
+        borderRadius:
+            BorderRadius.circular(
+          8,
+        ),
       ),
       child: RichText(
         text: TextSpan(
@@ -1907,7 +3363,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               text: value,
               style: TextStyle(
                 fontSize: 11.5,
-                fontWeight: FontWeight.bold,
+                fontWeight:
+                    FontWeight.bold,
                 color: color,
               ),
             ),
@@ -1915,7 +3372,10 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               text: ' $label',
               style: TextStyle(
                 fontSize: 9.5,
-                color: color.withOpacity(0.8),
+                color:
+                    color.withOpacity(
+                  0.8,
+                ),
               ),
             ),
           ],
@@ -1937,12 +3397,19 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
             .contains('fast');
 
     return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFEF3C7),
-        borderRadius: BorderRadius.circular(16),
+      padding:
+          const EdgeInsets.all(14),
+      decoration:
+          BoxDecoration(
+        color:
+            const Color(0xFFFEF3C7),
+        borderRadius:
+            BorderRadius.circular(
+          16,
+        ),
         border: Border.all(
-          color: const Color(0xFFFDE68A),
+          color:
+              const Color(0xFFFDE68A),
         ),
       ),
       child: Column(
@@ -1957,7 +3424,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                     Color(0xFFFDE68A),
                 child: Icon(
                   Icons.church_outlined,
-                  color: Color(0xFFB45309),
+                  color:
+                      Color(0xFFB45309),
                   size: 16,
                 ),
               ),
@@ -1965,31 +3433,44 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               Expanded(
                 child: Text(
                   fast.displayTitle,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
+                  style:
+                      const TextStyle(
+                    fontWeight:
+                        FontWeight.bold,
                     fontSize: 13.5,
-                    color: Color(0xFFB45309),
+                    color:
+                        Color(0xFFB45309),
                   ),
                 ),
               ),
               if (isFasting)
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(
+                      const EdgeInsets
+                          .symmetric(
                     horizontal: 7,
                     vertical: 3,
                   ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF542E13),
+                  decoration:
+                      BoxDecoration(
+                    color:
+                        const Color(
+                            0xFF542E13),
                     borderRadius:
-                        BorderRadius.circular(6),
+                        BorderRadius.circular(
+                      6,
+                    ),
                   ),
-                  child: const Text(
+                  child:
+                      const Text(
                     'FASTING',
-                    style: TextStyle(
+                    style:
+                        TextStyle(
                       fontSize: 9.5,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      fontWeight:
+                          FontWeight.bold,
+                      color:
+                          Colors.white,
                     ),
                   ),
                 ),
@@ -1998,10 +3479,12 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
           const SizedBox(height: 7),
           Text(
             fast.advice,
-            style: const TextStyle(
+            style:
+                const TextStyle(
               fontSize: 12,
               height: 1.3,
-              color: Color(0xFF78350F),
+              color:
+                  Color(0xFF78350F),
             ),
           ),
         ],
@@ -2012,6 +3495,195 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
   // ============================================================
   // HELPERS
   // ============================================================
+
+  String _dateOnly(DateTime date) {
+    final year =
+        date.year.toString().padLeft(
+              4,
+              '0',
+            );
+
+    final month =
+        date.month.toString().padLeft(
+              2,
+              '0',
+            );
+
+    final day =
+        date.day.toString().padLeft(
+              2,
+              '0',
+            );
+
+    return '$year-$month-$day';
+  }
+
+  int _calculateTimeDifference(
+    TimeOfDay start,
+    TimeOfDay end,
+  ) {
+    int startMinutes =
+        start.hour * 60 +
+            start.minute;
+
+    int endMinutes =
+        end.hour * 60 +
+            end.minute;
+
+    if (endMinutes <= startMinutes) {
+      endMinutes += 24 * 60;
+    }
+
+    return endMinutes -
+        startMinutes;
+  }
+
+  String _formatDuration(
+    int minutes,
+  ) {
+    final hours =
+        minutes ~/ 60;
+
+    final remaining =
+        minutes % 60;
+
+    if (hours == 0) {
+      return '${remaining}m';
+    }
+
+    if (remaining == 0) {
+      return '${hours}h';
+    }
+
+    return '${hours}h ${remaining}m';
+  }
+
+  String _moodEmoji(
+    int score,
+  ) {
+    switch (score) {
+      case 1:
+        return '😢';
+      case 2:
+        return '😕';
+      case 3:
+        return '😐';
+      case 4:
+        return '🙂';
+      case 5:
+        return '😄';
+      default:
+        return '😐';
+    }
+  }
+
+  Widget _sleepRangeButton({
+    required String label,
+    required int minutes,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: enabled
+          ? onTap
+          : null,
+      borderRadius:
+          BorderRadius.circular(12),
+      child: Container(
+        padding:
+            const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 10,
+        ),
+        decoration:
+            BoxDecoration(
+          color: selected
+              ? const Color(0xFFEFEBE9)
+              : const Color(0xFFFAFAF9),
+          borderRadius:
+              BorderRadius.circular(12),
+          border: Border.all(
+            color: selected
+                ? const Color(0xFF6D4C41)
+                : const Color(0xFFE7E5E4),
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight:
+                selected
+                    ? FontWeight.bold
+                    : FontWeight.w500,
+            color: selected
+                ? const Color(0xFF5D4037)
+                : const Color(0xFF57534E),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sleepQualityButton({
+    required String emoji,
+    required String label,
+    required int value,
+    required bool selected,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: enabled
+          ? onTap
+          : null,
+      borderRadius:
+          BorderRadius.circular(12),
+      child: Container(
+        width: 54,
+        padding:
+            const EdgeInsets.symmetric(
+          vertical: 7,
+        ),
+        decoration:
+            BoxDecoration(
+          color: selected
+              ? const Color(0xFFEFEBE9)
+              : Colors.transparent,
+          borderRadius:
+              BorderRadius.circular(12),
+          border: Border.all(
+            color: selected
+                ? const Color(0xFF6D4C41)
+                : const Color(0xFFE7E5E4),
+          ),
+        ),
+        child: Column(
+          children: [
+            Text(
+              emoji,
+              style:
+                  const TextStyle(
+                fontSize: 22,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style:
+                  const TextStyle(
+                fontSize: 8.5,
+                color:
+                    Color(0xFF57534E),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   double _number(dynamic value) {
     if (value is num) {
@@ -2024,8 +3696,11 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
         0;
   }
 
-  String _formatNumber(double value) {
-    if (value == value.roundToDouble()) {
+  String _formatNumber(
+    double value,
+  ) {
+    if (value ==
+        value.roundToDouble()) {
       return value.toInt().toString();
     }
 
@@ -2046,18 +3721,26 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
   }) {
     Widget button = InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius:
+          BorderRadius.circular(20),
       child: Container(
         width: 36,
         height: 36,
-        decoration: BoxDecoration(
+        decoration:
+            BoxDecoration(
           color:
-              backgroundColor ?? Colors.white,
+              backgroundColor ??
+                  Colors.white,
           shape: BoxShape.circle,
           border: Border.all(
-            color: backgroundColor != null
-                ? const Color(0xFFFED7AA)
-                : const Color(0xFFEADBCE),
+            color:
+                backgroundColor != null
+                    ? const Color(
+                        0xFFFED7AA,
+                      )
+                    : const Color(
+                        0xFFEADBCE,
+                      ),
           ),
         ),
         child: Icon(
@@ -2065,14 +3748,17 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
           size: 18,
           color:
               iconColor ??
-              const Color(0xFF542E13),
+                  const Color(
+                    0xFF542E13,
+                  ),
         ),
       ),
     );
 
     if (badgeColor != null) {
       button = Stack(
-        clipBehavior: Clip.none,
+        clipBehavior:
+            Clip.none,
         children: [
           button,
           Positioned(
@@ -2081,10 +3767,13 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
             child: Container(
               width: 8,
               height: 8,
-              decoration: BoxDecoration(
+              decoration:
+                  BoxDecoration(
                 color: badgeColor,
-                shape: BoxShape.circle,
-                border: Border.all(
+                shape:
+                    BoxShape.circle,
+                border:
+                    Border.all(
                   color: Colors.white,
                   width: 1.5,
                 ),

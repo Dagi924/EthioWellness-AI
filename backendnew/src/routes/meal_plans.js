@@ -1,3 +1,4 @@
+
 const express = require('express');
 const router = express.Router();
 
@@ -39,13 +40,19 @@ function getWeekIdentifier(date = new Date()) {
 
   d.setDate(d.getDate() + 4 - day);
 
-  const yearStart = new Date(d.getFullYear(), 0, 1);
+  const yearStart = new Date(
+    d.getFullYear(),
+    0,
+    1
+  );
 
   const weekNumber = Math.ceil(
     ((d - yearStart) / 86400000 + 1) / 7
   );
 
-  return `${d.getFullYear()}-W${String(weekNumber).padStart(2, '0')}`;
+  return `${d.getFullYear()}-W${String(
+    weekNumber
+  ).padStart(2, '0')}`;
 }
 
 /**
@@ -55,25 +62,27 @@ function getWeekIdentifier(date = new Date()) {
  */
 
 function isValidWeekIdentifier(value) {
-  return /^\d{4}-W(?:0[1-9]|[1-4]\d|5[0-3])$/.test(value);
+  return /^\d{4}-W(?:0[1-9]|[1-4]\d|5[0-3])$/.test(
+    value
+  );
 }
 
 /**
  * ============================================================
  * USER PROFILE
  * ============================================================
- *
- * There is intentionally NO fallback profile.
- *
- * AI generation uses the authenticated user's real
- * database profile.
  */
 
 async function getUserProfile(userId) {
   const profileResult = await db
     .select()
     .from(profiles)
-    .where(eq(profiles.userId, userId))
+    .where(
+      eq(
+        profiles.userId,
+        userId
+      )
+    )
     .limit(1);
 
   if (profileResult.length === 0) {
@@ -91,56 +100,172 @@ async function getUserProfile(userId) {
 
 /**
  * ============================================================
- * GROCERY ITEM VALIDATION
+ * SAFE VALUE DECODER
  * ============================================================
  *
- * Grocery items still need a minimum usable structure because
- * they are inserted into the groceryItems database table.
+ * Used only for extracting the saved meal plan.
+ *
+ * Grocery generation itself does NOT use JSON parsing.
  */
 
-function validateGroceryItem(item) {
-  if (
-    !item ||
-    typeof item !== 'object' ||
-    Array.isArray(item)
-  ) {
-    return false;
+function decodePossibleJson(value) {
+  if (typeof value !== 'string') {
+    return value;
   }
 
-  if (
-    typeof item.name !== 'string' ||
-    item.name.trim().length === 0
-  ) {
-    return false;
+  const text = value.trim();
+
+  if (!text) {
+    return '';
   }
 
-  if (
-    item.category !== undefined &&
-    typeof item.category !== 'string'
-  ) {
-    return false;
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return text;
   }
+}
+
+/**
+ * ============================================================
+ * EXTRACT ONLY MEAL PLAN
+ * ============================================================
+ *
+ * The database stores:
+ *
+ * {
+ *   mealPlan: ...,
+ *   exercisePlan: ...
+ * }
+ *
+ * Grocery generation must NEVER send exercisePlan.
+ */
+
+function extractMealPlan(planData) {
+  let current =
+    decodePossibleJson(
+      planData
+    );
+
+  /**
+   * ----------------------------------------------------------
+   * Direct mealPlan
+   * ----------------------------------------------------------
+   */
 
   if (
-    item.quantity !== undefined &&
-    typeof item.quantity !== 'string' &&
-    typeof item.quantity !== 'number'
-  ) {
-    return false;
-  }
-
-  if (
-    item.estimatedPriceEtb !== undefined &&
-    (
-      typeof item.estimatedPriceEtb !== 'number' ||
-      !Number.isFinite(item.estimatedPriceEtb) ||
-      item.estimatedPriceEtb < 0
+    current &&
+    typeof current === 'object' &&
+    !Array.isArray(current) &&
+    Object.prototype.hasOwnProperty.call(
+      current,
+      'mealPlan'
     )
   ) {
-    return false;
+    return extractMealPlan(
+      current.mealPlan
+    );
   }
 
-  return true;
+  /**
+   * ----------------------------------------------------------
+   * Nested planData
+   * ----------------------------------------------------------
+   */
+
+  if (
+    current &&
+    typeof current === 'object' &&
+    !Array.isArray(current) &&
+    Object.prototype.hasOwnProperty.call(
+      current,
+      'planData'
+    )
+  ) {
+    return extractMealPlan(
+      current.planData
+    );
+  }
+
+  /**
+   * ----------------------------------------------------------
+   * Raw AI fields
+   * ----------------------------------------------------------
+   */
+
+  if (
+    current &&
+    typeof current === 'object' &&
+    !Array.isArray(current)
+  ) {
+    if (
+      typeof current.rawAiText ===
+      'string'
+    ) {
+      return current.rawAiText;
+    }
+
+    if (
+      typeof current.rawAiResponse ===
+      'string'
+    ) {
+      return current.rawAiResponse;
+    }
+
+    if (
+      typeof current.text ===
+      'string'
+    ) {
+      return current.text;
+    }
+
+    if (
+      typeof current.content ===
+      'string'
+    ) {
+      return current.content;
+    }
+  }
+
+  /**
+   * ----------------------------------------------------------
+   * Otherwise preserve the meal plan.
+   * ----------------------------------------------------------
+   */
+
+  return current;
+}
+
+/**
+ * ============================================================
+ * CONVERT MEAL PLAN TO SAFE AI INPUT
+ * ============================================================
+ *
+ * This does NOT mean grocery output is JSON.
+ *
+ * We only serialize the saved meal plan if it is an object
+ * because the AI needs to receive its contents.
+ */
+
+function mealPlanForAI(mealPlan) {
+  if (
+    typeof mealPlan ===
+      'string'
+  ) {
+    return mealPlan;
+  }
+
+  try {
+    return JSON.stringify(
+      mealPlan,
+      null,
+      2
+    );
+  } catch (_) {
+    return String(
+      mealPlan
+    );
+  }
 }
 
 /**
@@ -156,49 +281,69 @@ router.get(
   authenticateToken,
   async (req, res) => {
     try {
-      const userId = req.user.id;
+      const userId =
+        req.user.id;
 
       const requestedWeek =
         !req.query.week ||
         req.query.week === 'current'
           ? getWeekIdentifier()
-          : String(req.query.week).trim();
+          : String(
+              req.query.week
+            ).trim();
 
-      if (!isValidWeekIdentifier(requestedWeek)) {
+      if (
+        !isValidWeekIdentifier(
+          requestedWeek
+        )
+      ) {
         return res.status(400).json({
-          error: 'Invalid week identifier.',
+          error:
+            'Invalid week identifier.',
         });
       }
 
-      const existing = await db
-        .select()
-        .from(mealPlans)
-        .where(
-          and(
-            eq(mealPlans.userId, userId),
-            eq(
-              mealPlans.weekIdentifier,
-              requestedWeek
+      const existing =
+        await db
+          .select()
+          .from(mealPlans)
+          .where(
+            and(
+              eq(
+                mealPlans.userId,
+                userId
+              ),
+              eq(
+                mealPlans.weekIdentifier,
+                requestedWeek
+              )
             )
           )
-        )
-        .limit(1);
+          .limit(1);
 
-      if (existing.length > 0) {
+      if (
+        existing.length > 0
+      ) {
         return res.status(200).json({
-          message: 'Meal plan retrieved successfully',
-          plan: existing[0],
+          message:
+            'Meal plan retrieved successfully',
+
+          plan:
+            existing[0],
         });
       }
 
       return res.status(404).json({
-        error: 'No meal plan exists for this week.',
-        weekIdentifier: requestedWeek,
+        error:
+          'No meal plan exists for this week.',
+
+        weekIdentifier:
+          requestedWeek,
       });
     } catch (err) {
       console.error(
         'GET WEEKLY MEAL PLAN ERROR:',
-        err
+        err?.message || err
       );
 
       return res.status(
@@ -219,16 +364,6 @@ router.get(
  * ============================================================
  *
  * POST /api/v1/meal-plans/generate
- *
- * IMPORTANT:
- *
- * The meal and exercise AI results are intentionally accepted
- * without structural validation.
- *
- * This is the temporary SOFT mode.
- *
- * The AI service decides what to return.
- * This route simply saves whatever it receives.
  */
 
 router.post(
@@ -236,25 +371,33 @@ router.post(
   authenticateToken,
   async (req, res) => {
     try {
-      const userId = req.user.id;
-      const weekIdentifier = getWeekIdentifier();
+      const userId =
+        req.user.id;
+
+      const weekIdentifier =
+        getWeekIdentifier();
 
       /**
        * --------------------------------------------------------
-       * REAL USER PROFILE
+       * USER PROFILE
        * --------------------------------------------------------
        */
 
-      const profile = await getUserProfile(userId);
+      const profile =
+        await getUserProfile(
+          userId
+        );
 
       /**
        * --------------------------------------------------------
-       * REAL FASTING INFORMATION
+       * FASTING INFORMATION
        * --------------------------------------------------------
        */
 
       const fastingRule =
-        await calculateDailyFastingRule(profile);
+        await calculateDailyFastingRule(
+          profile
+        );
 
       /**
        * --------------------------------------------------------
@@ -263,7 +406,8 @@ router.post(
        */
 
       if (
-        typeof generateMealPlanWithAI !== 'function'
+        typeof generateMealPlanWithAI !==
+        'function'
       ) {
         throw new Error(
           'generateMealPlanWithAI is not available.'
@@ -271,7 +415,8 @@ router.post(
       }
 
       if (
-        typeof generateExercisePlanWithAI !== 'function'
+        typeof generateExercisePlanWithAI !==
+        'function'
       ) {
         throw new Error(
           'generateExercisePlanWithAI is not available.'
@@ -280,18 +425,8 @@ router.post(
 
       /**
        * --------------------------------------------------------
-       * GENERATE MEAL PLAN
+       * MEAL PLAN
        * --------------------------------------------------------
-       *
-       * SOFT MODE:
-       *
-       * Do NOT validate the returned structure.
-       * Do NOT require planDays.
-       * Do NOT require meals.
-       * Do NOT require calories.
-       * Do NOT require mealType.
-       *
-       * Whatever the AI service returns is accepted.
        */
 
       console.log(
@@ -307,19 +442,14 @@ router.post(
         });
 
       console.log(
-        '[Meal Plans] Meal AI result accepted in SOFT mode:',
+        '[Meal Plans] Meal AI result accepted:',
         typeof mealPlan
       );
 
       /**
        * --------------------------------------------------------
-       * GENERATE EXERCISE PLAN
+       * EXERCISE PLAN
        * --------------------------------------------------------
-       *
-       * SOFT MODE:
-       *
-       * No structure validation.
-       * Whatever the AI returns is accepted.
        */
 
       console.log(
@@ -335,7 +465,7 @@ router.post(
         });
 
       console.log(
-        '[Meal Plans] Exercise AI result accepted in SOFT mode:',
+        '[Meal Plans] Exercise AI result accepted:',
         typeof exercisePlan
       );
 
@@ -343,18 +473,6 @@ router.post(
        * --------------------------------------------------------
        * COMBINE
        * --------------------------------------------------------
-       *
-       * Keep the AI outputs exactly as returned.
-       *
-       * This means:
-       *
-       * object -> object
-       * array  -> array
-       * string -> string
-       * number -> number
-       * boolean -> boolean
-       *
-       * PostgreSQL JSONB can store all of these as JSON values.
        */
 
       const combinedPlan = {
@@ -368,38 +486,44 @@ router.post(
        * --------------------------------------------------------
        */
 
-      const inserted = await db.transaction(
-        async (tx) => {
-          await tx
-            .delete(mealPlans)
-            .where(
-              and(
-                eq(mealPlans.userId, userId),
-                eq(
-                  mealPlans.weekIdentifier,
-                  weekIdentifier
+      const inserted =
+        await db.transaction(
+          async (tx) => {
+            await tx
+              .delete(mealPlans)
+              .where(
+                and(
+                  eq(
+                    mealPlans.userId,
+                    userId
+                  ),
+                  eq(
+                    mealPlans.weekIdentifier,
+                    weekIdentifier
+                  )
                 )
-              )
-            );
+              );
 
-          const result = await tx
-            .insert(mealPlans)
-            .values({
-              userId,
-              weekIdentifier,
-              planData: combinedPlan,
-            })
-            .returning();
+            const result =
+              await tx
+                .insert(mealPlans)
+                .values({
+                  userId,
+                  weekIdentifier,
+                  planData:
+                    combinedPlan,
+                })
+                .returning();
 
-          if (!result[0]) {
-            throw new Error(
-              'Failed to save generated meal plan.'
-            );
+            if (!result[0]) {
+              throw new Error(
+                'Failed to save generated meal plan.'
+              );
+            }
+
+            return result[0];
           }
-
-          return result[0];
-        }
-      );
+        );
 
       /**
        * --------------------------------------------------------
@@ -411,7 +535,8 @@ router.post(
         message:
           'Personalized meal and exercise plans generated successfully',
 
-        plan: inserted,
+        plan:
+          inserted,
 
         profile,
 
@@ -424,7 +549,7 @@ router.post(
     } catch (err) {
       console.error(
         'GENERATE PERSONALIZED MEAL/EXERCISE PLAN ERROR:',
-        err
+        err?.message || err
       );
 
       return res.status(
@@ -445,6 +570,13 @@ router.post(
  * ============================================================
  *
  * GET /api/v1/grocery/list
+ *
+ * NOTE:
+ *
+ * Grocery generation is now SOFT TEXT.
+ *
+ * This endpoint is kept for compatibility with the existing
+ * database/frontend.
  */
 
 router.get(
@@ -452,34 +584,45 @@ router.get(
   authenticateToken,
   async (req, res) => {
     try {
-      const userId = req.user.id;
+      const userId =
+        req.user.id;
 
-      const items = await db
-        .select()
-        .from(groceryItems)
-        .where(
-          eq(groceryItems.userId, userId)
-        );
-
-      const estimatedTotal = items.reduce(
-        (acc, item) => {
-          const price =
-            Number(item.estimatedPriceEtb);
-
-          return (
-            acc +
-            (
-              Number.isFinite(price)
-                ? price
-                : 0
+      const items =
+        await db
+          .select()
+          .from(groceryItems)
+          .where(
+            eq(
+              groceryItems.userId,
+              userId
             )
           );
-        },
-        0
-      );
+
+      const estimatedTotal =
+        items.reduce(
+          (acc, item) => {
+            const price =
+              Number(
+                item.estimatedPriceEtb
+              );
+
+            return (
+              acc +
+              (
+                Number.isFinite(
+                  price
+                )
+                  ? price
+                  : 0
+              )
+            );
+          },
+          0
+        );
 
       return res.status(200).json({
-        totalItems: items.length,
+        totalItems:
+          items.length,
 
         estimatedTotalEtb:
           Math.round(
@@ -491,7 +634,7 @@ router.get(
     } catch (err) {
       console.error(
         'GET GROCERY LIST ERROR:',
-        err
+        err?.message || err
       );
 
       return res.status(500).json({
@@ -509,7 +652,27 @@ router.get(
  *
  * POST /api/v1/grocery/generate
  *
- * Grocery generation uses the saved personalized meal plan.
+ * NEW SOFT FLOW:
+ *
+ * 1. Get current week.
+ * 2. Load saved meal plan.
+ * 3. Extract ONLY mealPlan.
+ * 4. Completely ignore exercisePlan.
+ * 5. Send meal plan to AI.
+ * 6. AI returns NORMAL TEXT.
+ * 7. Return AI text directly.
+ *
+ * IMPORTANT:
+ *
+ * There is NO:
+ *
+ * JSON.parse()
+ * items validation
+ * price validation
+ * groceryItems insertion
+ * JSON schema requirement
+ *
+ * The grocery AI response is treated exactly like chatbot text.
  */
 
 router.post(
@@ -517,36 +680,91 @@ router.post(
   authenticateToken,
   async (req, res) => {
     try {
-      const userId = req.user.id;
+      const userId =
+        req.user.id;
+
       const weekIdentifier =
         getWeekIdentifier();
 
+      console.log(
+        `[Grocery] Generating grocery list for ${weekIdentifier}`
+      );
+
       /**
        * --------------------------------------------------------
-       * GET ACTIVE MEAL PLAN
+       * GET CURRENT WEEK MEAL PLAN
        * --------------------------------------------------------
        */
 
-      const plans = await db
-        .select()
-        .from(mealPlans)
-        .where(
-          and(
-            eq(mealPlans.userId, userId),
-            eq(
-              mealPlans.weekIdentifier,
-              weekIdentifier
+      const plans =
+        await db
+          .select()
+          .from(mealPlans)
+          .where(
+            and(
+              eq(
+                mealPlans.userId,
+                userId
+              ),
+              eq(
+                mealPlans.weekIdentifier,
+                weekIdentifier
+              )
             )
           )
-        )
-        .limit(1);
+          .limit(1);
 
-      if (plans.length === 0) {
+      if (
+        plans.length === 0
+      ) {
         return res.status(404).json({
           error:
             'Generate a meal plan before generating a grocery list.',
         });
       }
+
+      /**
+       * --------------------------------------------------------
+       * EXTRACT ONLY MEAL PLAN
+       * --------------------------------------------------------
+       */
+
+      const savedPlan =
+        plans[0].planData;
+
+      const mealPlan =
+        extractMealPlan(
+          savedPlan
+        );
+
+      if (
+        mealPlan === null ||
+        mealPlan === undefined ||
+        (
+          typeof mealPlan ===
+            'string' &&
+          mealPlan.trim().length === 0
+        )
+      ) {
+        return res.status(400).json({
+          error:
+            'The current weekly meal plan contains no usable meal data.',
+        });
+      }
+
+      /**
+       * --------------------------------------------------------
+       * SAFE LOGGING
+       * --------------------------------------------------------
+       */
+
+      console.log(
+        '[Grocery] Current meal plan extracted successfully.'
+      );
+
+      console.log(
+        '[Grocery] Exercise plan excluded from grocery prompt.'
+      );
 
       /**
        * --------------------------------------------------------
@@ -565,172 +783,113 @@ router.post(
 
       /**
        * --------------------------------------------------------
-       * GENERATE FROM SAVED PLAN
+       * PREPARE MEAL PLAN
        * --------------------------------------------------------
        */
 
-      const generatedItems =
-        await generateGroceryListWithAI(
-          plans[0].planData
+      const aiMealPlan =
+        mealPlanForAI(
+          mealPlan
         );
 
       /**
-       * Grocery generation still needs an array because
-       * groceryItems is a relational table.
+       * --------------------------------------------------------
+       * GENERATE PLAIN-TEXT GROCERY LIST
+       * --------------------------------------------------------
+       */
+
+      const groceryText =
+        await generateGroceryListWithAI({
+          mealPlan:
+            aiMealPlan,
+
+          userId,
+
+          weekIdentifier,
+        });
+
+      /**
+       * --------------------------------------------------------
+       * VERIFY TEXT
+       * --------------------------------------------------------
+       *
+       * No JSON parsing.
+       * No item validation.
+       * No price validation.
        */
 
       if (
-        !Array.isArray(generatedItems) ||
-        generatedItems.length === 0
+        typeof groceryText !==
+        'string'
+      ) {
+        throw new Error(
+          'AI grocery response was not text.'
+        );
+      }
+
+      const cleanedText =
+        groceryText.trim();
+
+      if (
+        cleanedText.length ===
+        0
       ) {
         throw new Error(
           'AI returned an empty grocery list.'
         );
       }
 
-      /**
-       * --------------------------------------------------------
-       * VALIDATE GROCERY ITEMS
-       * --------------------------------------------------------
-       */
-
-      const validItems =
-        generatedItems.filter(
-          validateGroceryItem
-        );
-
-      if (
-        validItems.length !==
-        generatedItems.length
-      ) {
-        throw new Error(
-          'AI returned invalid grocery item data.'
-        );
-      }
-
-      /**
-       * --------------------------------------------------------
-       * NORMALIZE SAFE VALUES
-       * --------------------------------------------------------
-       */
-
-      const values = validItems.map(
-        (item) => {
-          const price =
-            Number(
-              item.estimatedPriceEtb
-            );
-
-          return {
-            userId,
-
-            name:
-              item.name.trim(),
-
-            category:
-              typeof item.category === 'string'
-                ? item.category.trim()
-                : 'General',
-
-            quantity:
-              item.quantity !== undefined
-                ? String(item.quantity).trim()
-                : '',
-
-            estimatedPriceEtb:
-              Number.isFinite(price) &&
-              price >= 0
-                ? price
-                : 0,
-
-            isChecked: false,
-          };
-        }
+      console.log(
+        `[Grocery] Plain-text grocery list generated successfully (${cleanedText.length} characters).`
       );
 
       /**
        * --------------------------------------------------------
-       * REPLACE USER'S GROCERY LIST
+       * RETURN DIRECTLY
        * --------------------------------------------------------
+       *
+       * This is the important part.
+       *
+       * The frontend receives:
+       *
+       * groceryText
+       *
+       * and can display it directly.
+       *
+       * Nothing is converted into JSON grocery items.
        */
-
-      await db.transaction(
-        async (tx) => {
-          await tx
-            .delete(groceryItems)
-            .where(
-              eq(
-                groceryItems.userId,
-                userId
-              )
-            );
-
-          await tx
-            .insert(groceryItems)
-            .values(values);
-        }
-      );
-
-      /**
-       * --------------------------------------------------------
-       * READ BACK SAVED DATA
-       * --------------------------------------------------------
-       */
-
-      const inserted =
-        await db
-          .select()
-          .from(groceryItems)
-          .where(
-            eq(
-              groceryItems.userId,
-              userId
-            )
-          );
-
-      const estimatedTotal =
-        inserted.reduce(
-          (acc, item) => {
-            const price =
-              Number(
-                item.estimatedPriceEtb
-              );
-
-            return (
-              acc +
-              (
-                Number.isFinite(price)
-                  ? price
-                  : 0
-              )
-            );
-          },
-          0
-        );
 
       return res.status(201).json({
         message:
-          'Grocery list generated from active personalized meal plan',
+          'Grocery list generated successfully.',
 
-        totalItems:
-          inserted.length,
+        weekIdentifier,
 
-        estimatedTotalEtb:
-          Math.round(
-            estimatedTotal * 100
-          ) / 100,
-
-        items: inserted,
+        groceryText:
+          cleanedText,
       });
+
     } catch (err) {
+      /**
+       * IMPORTANT:
+       *
+       * Do not dump complete Axios/OpenRouter errors.
+       *
+       * They may contain authorization information.
+       */
+
       console.error(
         'GENERATE GROCERY ERROR:',
-        err
+        err?.message || err
       );
 
-      return res.status(500).json({
+      return res.status(
+        err.statusCode || 500
+      ).json({
         error:
-          'Failed to generate grocery list',
+          err.statusCode
+            ? err.message
+            : 'Failed to generate grocery list',
       });
     }
   }
@@ -742,6 +901,9 @@ router.post(
  * ============================================================
  *
  * PATCH /api/v1/grocery/items/:id
+ *
+ * Kept for compatibility with the existing structured grocery
+ * database and older frontend.
  */
 
 router.patch(
@@ -749,11 +911,13 @@ router.patch(
   authenticateToken,
   async (req, res) => {
     try {
-      const userId = req.user.id;
+      const userId =
+        req.user.id;
 
-      const itemId = String(
-        req.params.id
-      );
+      const itemId =
+        String(
+          req.params.id
+        );
 
       const {
         isChecked,
@@ -763,7 +927,8 @@ router.patch(
       const updateData = {};
 
       if (
-        typeof isChecked === 'boolean'
+        typeof isChecked ===
+        'boolean'
       ) {
         updateData.isChecked =
           isChecked;
@@ -774,10 +939,13 @@ router.patch(
         quantity !== null
       ) {
         const normalizedQuantity =
-          String(quantity).trim();
+          String(
+            quantity
+          ).trim();
 
         if (
-          normalizedQuantity.length === 0
+          normalizedQuantity.length ===
+          0
         ) {
           return res.status(400).json({
             error:
@@ -786,7 +954,8 @@ router.patch(
         }
 
         if (
-          normalizedQuantity.length > 255
+          normalizedQuantity.length >
+          255
         ) {
           return res.status(400).json({
             error:
@@ -799,7 +968,9 @@ router.patch(
       }
 
       if (
-        Object.keys(updateData).length === 0
+        Object.keys(
+          updateData
+        ).length === 0
       ) {
         return res.status(400).json({
           error:
@@ -836,12 +1007,13 @@ router.patch(
         message:
           'Grocery item updated',
 
-        item: updated,
+        item:
+          updated,
       });
     } catch (err) {
       console.error(
         'UPDATE GROCERY ITEM ERROR:',
-        err
+        err?.message || err
       );
 
       return res.status(500).json({
@@ -865,11 +1037,13 @@ router.delete(
   authenticateToken,
   async (req, res) => {
     try {
-      const userId = req.user.id;
+      const userId =
+        req.user.id;
 
-      const itemId = String(
-        req.params.id
-      );
+      const itemId =
+        String(
+          req.params.id
+        );
 
       const [deleted] =
         await db
@@ -899,12 +1073,13 @@ router.delete(
         message:
           'Grocery item deleted',
 
-        item: deleted,
+        item:
+          deleted,
       });
     } catch (err) {
       console.error(
         'DELETE GROCERY ITEM ERROR:',
-        err
+        err?.message || err
       );
 
       return res.status(500).json({
@@ -914,5 +1089,11 @@ router.delete(
     }
   }
 );
+
+/**
+ * ============================================================
+ * EXPORT ROUTER
+ * ============================================================
+ */
 
 module.exports = router;

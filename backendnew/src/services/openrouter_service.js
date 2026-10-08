@@ -1,12 +1,13 @@
-
 // ============================================================
 // ETHIONUTRI AI - OPENROUTER SERVICE
 // ============================================================
 
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 // ============================================================
-// CONFIG
+// OPENROUTER
 // ============================================================
 
 const OPENROUTER_URL =
@@ -16,31 +17,35 @@ const OPENROUTER_MODELS_URL =
   'https://openrouter.ai/api/v1/models';
 
 // ============================================================
-// PRIMARY MODEL
+// MODELS
 // ============================================================
 
 const GEMMA_MODEL =
   'google/gemma-4-26b-a4b-it:free';
-
-// ============================================================
-// KNOWN FREE FALLBACK MODELS
-// ============================================================
 
 const KNOWN_FREE_FALLBACK_MODELS = [
   'google/gemma-4-31b-it:free',
   'nvidia/nemotron-3-ultra-550b-a55b:free',
 ];
 
-// ============================================================
-// MODEL LISTS
-// ============================================================
-
 const CHATBOT_MODELS = [
   GEMMA_MODEL,
+  ...KNOWN_FREE_FALLBACK_MODELS,
+  'qwen/qwen3.8-27b:free',
+  'openrouter/free',
+];
+
+const TEXT_MODELS = [
+  GEMMA_MODEL,
+  ...KNOWN_FREE_FALLBACK_MODELS,
+  'qwen/qwen3.8-27b:free',
+  'openrouter/free',
 ];
 
 const VISION_MODELS = [
   GEMMA_MODEL,
+  'google/gemma-4-31b-it:free',
+  'openrouter/free',
 ];
 
 // ============================================================
@@ -48,11 +53,8 @@ const VISION_MODELS = [
 // ============================================================
 
 const REQUEST_TIMEOUT = 120000;
-
 const CHAT_TIMEOUT = 30000;
-
 const VISION_TIMEOUT = 60000;
-
 const MODEL_DISCOVERY_TIMEOUT = 30000;
 
 // ============================================================
@@ -65,22 +67,26 @@ function getApiKey() {
     process.env.OPENROUTER_KEY;
 
   if (!key) {
-    throw new Error(
-      'OPENROUTER_API_KEY is not configured'
-    );
+    return null;
   }
 
-  return key;
+  if (
+    key.trim() ===
+    'your_openrouter_api_key_here'
+  ) {
+    return null;
+  }
+
+  return key.trim();
 }
 
 // ============================================================
 // HEADERS
 // ============================================================
 
-function getHeaders() {
+function getHeaders(apiKey) {
   return {
-    Authorization:
-      `Bearer ${getApiKey()}`,
+    Authorization: `Bearer ${apiKey}`,
 
     'Content-Type':
       'application/json',
@@ -96,8 +102,69 @@ function getHeaders() {
 }
 
 // ============================================================
+// SAFE JSON
+// ============================================================
+
+function safeJson(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '{}';
+  }
+}
+
+// ============================================================
+// PROFILE SERIALIZATION
+// ============================================================
+
+function serializeProfile(profile) {
+  if (!profile) {
+    return {};
+  }
+
+  if (
+    typeof profile ===
+    'string'
+  ) {
+    try {
+      return JSON.parse(profile);
+    } catch {
+      return {
+        profile,
+      };
+    }
+  }
+
+  return profile;
+}
+
+// ============================================================
+// FASTING SERIALIZATION
+// ============================================================
+
+function serializeFasting(fasting) {
+  if (!fasting) {
+    return {};
+  }
+
+  if (
+    typeof fasting ===
+    'string'
+  ) {
+    try {
+      return JSON.parse(fasting);
+    } catch {
+      return {
+        fasting,
+      };
+    }
+  }
+
+  return fasting;
+}
+
+// ============================================================
 // CURRENT WEEK
-// MONDAY -> SUNDAY
 // ============================================================
 
 function getCurrentWeek() {
@@ -122,21 +189,21 @@ function getCurrentWeek() {
   const year =
     Number(
       parts.find(
-        (p) => p.type === 'year'
+        p => p.type === 'year'
       ).value
     );
 
   const month =
     Number(
       parts.find(
-        (p) => p.type === 'month'
+        p => p.type === 'month'
       ).value
     );
 
   const day =
     Number(
       parts.find(
-        (p) => p.type === 'day'
+        p => p.type === 'day'
       ).value
     );
 
@@ -172,7 +239,7 @@ function getCurrentWeek() {
     sunday.getUTCDate() + 6
   );
 
-  const formatDate = (d) =>
+  const formatDate = d =>
     d.toISOString().slice(0, 10);
 
   return {
@@ -201,230 +268,47 @@ function getCurrentWeek() {
 }
 
 // ============================================================
-// SAFE JSON
-// ============================================================
-
-function safeJson(value) {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return '{}';
-  }
-}
-
-// ============================================================
-// PROFILE SERIALIZATION
-// ============================================================
-
-function serializeProfile(profile) {
-  if (!profile) {
-    return {};
-  }
-
-  if (
-    typeof profile ===
-    'string'
-  ) {
-    try {
-      return JSON.parse(
-        profile
-      );
-    } catch {
-      return {
-        profile,
-      };
-    }
-  }
-
-  return profile;
-}
-
-// ============================================================
-// FASTING SERIALIZATION
-// ============================================================
-
-function serializeFasting(fasting) {
-  if (!fasting) {
-    return {};
-  }
-
-  if (
-    typeof fasting ===
-    'string'
-  ) {
-    try {
-      return JSON.parse(
-        fasting
-      );
-    } catch {
-      return {
-        fasting,
-      };
-    }
-  }
-
-  return fasting;
-}
-
-// ============================================================
-// PERSONALIZED CHATBOT SYSTEM PROMPT
-// ============================================================
-//
-// IMPORTANT:
-//
-// This is the original chatbot behavior.
-//
-// The chatbot answers the user's actual question.
-// It does NOT force every conversation into a meal plan.
-// It does NOT force JSON.
-// It does NOT generate a 7-day plan unless the user asks.
+// CHATBOT SYSTEM PROMPT
 // ============================================================
 
 function buildChatbotSystemPrompt(
   profile
 ) {
-  const userProfile =
-    serializeProfile(
-      profile
-    );
+  const profileData =
+    serializeProfile(profile);
 
   return `
-You are EthioNutri AI, an expert nutrition assistant
-specializing in Ethiopian traditional foods and fasting.
+You are EthioNutri AI, an expert nutrition assistant specializing in Ethiopian traditional foods and fasting.
 
-Fasting Practice:
-${userProfile.fastingPractice || 'Orthodox'}
+Use the user's real profile.
 
-Health Goal:
-${userProfile.goal || 'General Health'}
+USER PROFILE:
+${safeJson(profileData)}
 
-Dietary Restrictions:
-${JSON.stringify(
-  userProfile.dietaryRestrictions || []
-)}
+IMPORTANT:
 
-Health Conditions:
-${JSON.stringify(
-  userProfile.healthConditions || []
-)}
-
-Give practical, concise and culturally relevant advice.
-
-Prefer appropriate Ethiopian foods such as:
-- Teff
-- Injera
-- Shiro
-- Misir
-- Gomen
-- Beans
-- Chickpeas
-- Lentils
-- Telba
-- Fosolia
-- Kik Alicha
-
-Respect fasting requirements.
-
-Do not invent medical diagnoses.
-Do not claim that food can cure diseases.
-When a question requires professional medical
-attention, recommend a qualified healthcare professional.
+- Do not invent missing profile information.
+- Respect fasting practices.
+- Respect dietary restrictions.
+- Respect allergies.
+- Consider health conditions when relevant.
+- Do not invent medical diagnoses.
+- Do not claim food cures diseases.
+- Recommend qualified healthcare professionals when appropriate.
+- Give practical Ethiopian nutrition advice.
 `.trim();
-}
-
-// ============================================================
-// GENERIC OPENROUTER CALL
-// ============================================================
-//
-// Same request structure used by the chatbot.
-//
-// No response_format.
-// No JSON mode.
-// No structured-output requirement.
-// ============================================================
-
-async function callOpenRouter({
-  messages,
-  temperature = 0.5,
-  maxTokens = 600,
-  timeout = REQUEST_TIMEOUT,
-  model = GEMMA_MODEL,
-}) {
-  const requestBody = {
-    model,
-
-    messages,
-
-    temperature,
-
-    max_tokens:
-      maxTokens,
-  };
-
-  const response =
-    await axios.post(
-      OPENROUTER_URL,
-      requestBody,
-      {
-        headers:
-          getHeaders(),
-
-        timeout,
-      }
-    );
-
-  const choice =
-    response?.data
-      ?.choices?.[0];
-
-  const content =
-    choice?.message
-      ?.content;
-
-  const finishReason =
-    choice?.finish_reason;
-
-  console.log(
-    `[EthioNutri AI] ${model} finish_reason:`,
-    finishReason ||
-      'unknown'
-  );
-
-  if (
-    content ===
-      undefined ||
-    content === null ||
-    String(content)
-      .trim() === ''
-  ) {
-    throw new Error(
-      `Model ${model} returned an empty response`
-    );
-  }
-
-  return {
-    content:
-      String(content).trim(),
-
-    finishReason,
-
-    raw:
-      response.data,
-  };
 }
 
 // ============================================================
 // UNIQUE MODELS
 // ============================================================
 
-function uniqueModels(
-  models
-) {
+function uniqueModels(models) {
   return [
     ...new Set(
       (models || [])
         .filter(
-          (model) =>
+          model =>
             typeof model ===
               'string' &&
             model.trim()
@@ -434,470 +318,1276 @@ function uniqueModels(
 }
 
 // ============================================================
-// GET AVAILABLE OPENROUTER MODELS
+// GENERIC OPENROUTER CALL
+//
+// IMPORTANT:
+//
+// This uses the SAME request structure as the chatbot:
+//
+// {
+//   model,
+//   messages,
+//   temperature,
+//   max_tokens
+// }
+//
+// No response_format.
+// No JSON mode.
 // ============================================================
 
-async function getAvailableModels() {
-  const response =
-    await axios.get(
-      OPENROUTER_MODELS_URL,
-      {
-        headers:
-          getHeaders(),
-
-        timeout:
-          MODEL_DISCOVERY_TIMEOUT,
-      }
-    );
-
-  return (
-    response?.data?.data ||
-    []
-  );
-}
-
-// ============================================================
-// DISCOVER FREE TEXT MODELS
-// ============================================================
-
-async function discoverFreeTextModels() {
-  try {
-    const models =
-      await getAvailableModels();
-
-    if (
-      !Array.isArray(models)
-    ) {
-      return [];
-    }
-
-    const discovered =
-      models
-        .filter(
-          (model) => {
-            const id =
-              model?.id;
-
-            if (
-              typeof id !==
-              'string'
-            ) {
-              return false;
-            }
-
-            if (
-              !id.endsWith(
-                ':free'
-              )
-            ) {
-              return false;
-            }
-
-            if (
-              id ===
-              'openrouter/free'
-            ) {
-              return false;
-            }
-
-            return true;
-          }
-        )
-        .filter(
-          (model) => {
-            const id =
-              String(
-                model.id
-              ).toLowerCase();
-
-            const blocked = [
-              'embedding',
-              'tts',
-              'speech',
-              'audio',
-              'transcription',
-              'whisper',
-              'moderation',
-              'guard',
-            ];
-
-            return !blocked.some(
-              (word) =>
-                id.includes(word)
-            );
-          }
-        )
-        .map(
-          (model) =>
-            model.id
-        );
-
-    return uniqueModels(
-      discovered
-    );
-  } catch (error) {
-    console.error(
-      '[EthioNutri AI] Free model discovery failed:',
-      error?.message ||
-        error
-    );
-
-    return [];
-  }
-}
-
-// ============================================================
-// ALL TEXT MODELS
-// ============================================================
-
-async function getTextModels() {
-  const discovered =
-    await discoverFreeTextModels();
-
-  return uniqueModels([
-    GEMMA_MODEL,
-
-    ...KNOWN_FREE_FALLBACK_MODELS,
-
-    ...discovered,
-  ]);
-}
-
-// ============================================================
-// RETRY SAME MODEL?
-// ============================================================
-
-function shouldRetrySameModel(
-  error
-) {
-  const status =
-    error?.response?.status;
-
-  if (
-    status === 429
-  ) {
-    return false;
-  }
-
-  if (
-    status === 401 ||
-    status === 403
-  ) {
-    return false;
-  }
-
-  if (
-    status === 404
-  ) {
-    return false;
-  }
-
-  return true;
-}
-
-// ============================================================
-// PLAIN TEXT GENERATOR
-// ============================================================
-
-async function generatePlainText({
-  systemPrompt,
-  userPrompt,
-  maxTokens,
-  retryMaxTokens,
-  temperature = 0.3,
-  label,
+async function callOpenRouter({
+  messages,
+  temperature = 0.5,
+  maxTokens = 1000,
+  timeout = REQUEST_TIMEOUT,
+  models = TEXT_MODELS,
+  model = null,
 }) {
-  const models =
-    await getTextModels();
+  const apiKey =
+    getApiKey();
 
-  console.log(
-    `[EthioNutri AI] Text model fallback order for ${label}:`
-  );
+  if (!apiKey) {
+    throw new Error(
+      'OPENROUTER_API_KEY is missing or invalid'
+    );
+  }
 
-  console.log(
-    models.join(' -> ')
-  );
+  const modelList =
+    uniqueModels(
+      model
+        ? [model]
+        : models
+    );
 
   let lastError =
     null;
 
   for (
-    let modelIndex = 0;
-    modelIndex < models.length;
-    modelIndex++
+    const currentModel
+    of modelList
   ) {
-    const model =
-      models[modelIndex];
-
-    const attempts = [
-      maxTokens,
-      retryMaxTokens ||
-        maxTokens,
-    ];
-
-    for (
-      let attempt = 0;
-      attempt < attempts.length;
-      attempt++
-    ) {
-      const currentMaxTokens =
-        attempts[attempt];
-
+    try {
       console.log(
-        `[EthioNutri AI] Trying ${label}: ${model} | attempt ${
-          attempt + 1
-        }/${attempts.length} | max_tokens=${currentMaxTokens}`
+        `[EthioNutri AI] Trying OpenRouter model: ${currentModel}`
       );
 
-      try {
-        const result =
-          await callOpenRouter({
-            model,
+      const requestBody = {
+        model:
+          currentModel,
 
-            messages: [
-              {
-                role:
-                  'system',
+        messages,
 
-                content:
-                  systemPrompt,
-              },
+        temperature,
 
-              {
-                role:
-                  'user',
+        max_tokens:
+          maxTokens,
+      };
 
-                content:
-                  userPrompt,
-              },
-            ],
+      const response =
+        await axios.post(
+          OPENROUTER_URL,
+          requestBody,
+          {
+            headers:
+              getHeaders(apiKey),
 
-            temperature,
-
-            maxTokens:
-              currentMaxTokens,
-
-            timeout:
-              REQUEST_TIMEOUT,
-          });
-
-        if (
-          result.finishReason ===
-            'length' &&
-          attempt + 1 <
-            attempts.length
-        ) {
-          console.warn(
-            `[EthioNutri AI] ${label}: ${model} reached token limit. Retrying with larger max_tokens.`
-          );
-
-          continue;
-        }
-
-        console.log(
-          `[EthioNutri AI] ${label} generated successfully using ${model}`
+            timeout,
+          }
         );
 
-        return result.content;
-      } catch (error) {
-        lastError =
-          error;
+      const choice =
+        response?.data
+          ?.choices?.[0];
 
-        const status =
-          error?.response?.status ||
-          'N/A';
+      const content =
+        choice?.message
+          ?.content;
 
-        const apiError =
-          error?.response?.data ||
-          error?.message ||
-          error;
+      const finishReason =
+        choice?.finish_reason;
 
-        console.error(
-          `[EthioNutri AI] ${label} failed: ${model} | HTTP ${status}`
+      console.log(
+        `[EthioNutri AI] ${currentModel} finish_reason: ${
+          finishReason || 'unknown'
+        }`
+      );
+
+      if (
+        content ===
+          undefined ||
+        content === null ||
+        String(content)
+          .trim() === ''
+      ) {
+        throw new Error(
+          `Model ${currentModel} returned an empty response`
         );
-
-        console.error(
-          apiError
-        );
-
-        // ------------------------------------------------------
-        // 429
-        // ------------------------------------------------------
-
-        if (
-          status === 429
-        ) {
-          console.warn(
-            `[EthioNutri AI] ${model} is rate-limited. Moving to the next model.`
-          );
-
-          break;
-        }
-
-        // ------------------------------------------------------
-        // AUTH
-        // ------------------------------------------------------
-
-        if (
-          status === 401 ||
-          status === 403
-        ) {
-          console.error(
-            '[EthioNutri AI] OpenRouter authentication/permission error. Check OPENROUTER_API_KEY.'
-          );
-
-          break;
-        }
-
-        // ------------------------------------------------------
-        // MODEL NOT FOUND
-        // ------------------------------------------------------
-
-        if (
-          status === 404
-        ) {
-          console.warn(
-            `[EthioNutri AI] Model ${model} is unavailable. Moving to next model.`
-          );
-
-          break;
-        }
-
-        // ------------------------------------------------------
-        // OTHER ERRORS
-        // ------------------------------------------------------
-
-        if (
-          shouldRetrySameModel(
-            error
-          ) &&
-          attempt + 1 <
-            attempts.length
-        ) {
-          console.warn(
-            `[EthioNutri AI] Retrying ${label} with ${model}...`
-          );
-
-          continue;
-        }
-
-        break;
       }
+
+      console.log(
+        `[EthioNutri AI] SUCCESS using model: ${currentModel}`
+      );
+
+      return {
+        model:
+          currentModel,
+
+        content:
+          String(content).trim(),
+
+        finishReason,
+
+        raw:
+          response.data,
+      };
+
+    } catch (error) {
+      lastError =
+        error;
+
+      const status =
+        error?.response
+          ?.status;
+
+      const errorData =
+        error?.response
+          ?.data ||
+        error?.message;
+
+      console.error(
+        `[EthioNutri AI] Model failed: ${currentModel} | HTTP ${
+          status || 'N/A'
+        }`
+      );
+
+      console.error(
+        errorData
+      );
+
+      // ------------------------------------------------------
+      // RATE LIMIT
+      // ------------------------------------------------------
+
+      if (
+        status === 429
+      ) {
+        console.warn(
+          `[EthioNutri AI] ${currentModel} is rate-limited. Trying next model.`
+        );
+
+        continue;
+      }
+
+      // ------------------------------------------------------
+      // AUTH
+      // ------------------------------------------------------
+
+      if (
+        status === 401 ||
+        status === 403
+      ) {
+        console.error(
+          '[EthioNutri AI] OpenRouter authentication/permission error.'
+        );
+
+        continue;
+      }
+
+      // ------------------------------------------------------
+      // MODEL NOT FOUND
+      // ------------------------------------------------------
+
+      if (
+        status === 404
+      ) {
+        console.warn(
+          `[EthioNutri AI] Model ${currentModel} is unavailable.`
+        );
+
+        continue;
+      }
+
+      // ------------------------------------------------------
+      // OTHER ERRORS
+      // ------------------------------------------------------
+
+      continue;
     }
   }
 
   throw (
     lastError ||
     new Error(
-      `${label} generation failed on all available models`
+      'All OpenRouter models failed'
     )
   );
+}
+
+// ============================================================
+// PLAIN TEXT GENERATOR
+//
+// Used for:
+// - Grocery
+// - Exercise
+// - Other readable AI responses
+//
+// NO JSON PARSING.
+// ============================================================
+
+async function generatePlainText({
+  systemPrompt,
+  userPrompt,
+  maxTokens,
+  temperature = 0.3,
+  timeout = REQUEST_TIMEOUT,
+  label,
+  models = TEXT_MODELS,
+}) {
+  const modelList =
+    uniqueModels(models);
+
+  console.log(
+    `[EthioNutri AI] ${label} model order:`
+  );
+
+  console.log(
+    modelList.join(' -> ')
+  );
+
+  let lastError =
+    null;
+
+  for (
+    const model
+    of modelList
+  ) {
+    try {
+      console.log(
+        `[EthioNutri AI] Trying ${label}: ${model}`
+      );
+
+      const result =
+        await callOpenRouter({
+          model,
+
+          messages: [
+            {
+              role:
+                'system',
+
+              content:
+                systemPrompt,
+            },
+
+            {
+              role:
+                'user',
+
+              content:
+                userPrompt,
+            },
+          ],
+
+          temperature,
+
+          maxTokens,
+
+          timeout,
+        });
+
+      // ------------------------------------------------------
+      // IMPORTANT
+      //
+      // Even if finish_reason is "length", return whatever
+      // usable text was generated.
+      //
+      // We do NOT parse it.
+      // ------------------------------------------------------
+
+      if (
+        result.content &&
+        result.content.trim()
+      ) {
+        console.log(
+          `[EthioNutri AI] ${label} generated successfully using ${model}`
+        );
+
+        return result.content;
+      }
+
+      throw new Error(
+        `${label} returned empty text`
+      );
+
+    } catch (error) {
+      lastError =
+        error;
+
+      const status =
+        error?.response
+          ?.status;
+
+      if (
+        status === 429
+      ) {
+        console.warn(
+          `[EthioNutri AI] ${model} is rate-limited. Trying next model.`
+        );
+
+        continue;
+      }
+
+      if (
+        status === 401 ||
+        status === 403
+      ) {
+        console.warn(
+          `[EthioNutri AI] ${model} rejected the request. Trying next model.`
+        );
+
+        continue;
+      }
+
+      if (
+        status === 404
+      ) {
+        continue;
+      }
+
+      console.warn(
+        `[EthioNutri AI] ${label} failed on ${model}:`,
+        error?.message ||
+          error
+      );
+    }
+  }
+
+  throw (
+    lastError ||
+    new Error(
+      `${label} generation failed on all models`
+    )
+  );
+}
+
+// ============================================================
+// PARAMETER EXTRACTION
+// ============================================================
+
+function extractParams(
+  arg1,
+  arg2
+) {
+  let profile = {};
+
+  let fastingRule = {
+    title:
+      'Standard Fast',
+
+    isVeganRequired:
+      false,
+  };
+
+  if (
+    arg1 &&
+    typeof arg1 ===
+      'object'
+  ) {
+    if (
+      arg1.profile
+    ) {
+      profile =
+        arg1.profile;
+
+      fastingRule =
+        arg1.fastingRule ||
+        fastingRule;
+    } else {
+      profile =
+        arg1;
+
+      fastingRule =
+        arg2 ||
+        fastingRule;
+    }
+  }
+
+  return {
+    profile,
+    fastingRule,
+  };
 }
 
 // ============================================================
 // MEAL PLAN
 // ============================================================
 
-async function generateMealPlan({
-  profile,
-  fasting,
-  preferences = {},
-}) {
-  const week =
-    getCurrentWeek();
-
-  console.log(
-    `[EthioNutri AI] Generating meal plan: ${week.startDate} -> ${week.endDate}`
-  );
-
-  const profileData =
-    serializeProfile(
-      profile
+async function generateMealPlanWithAI(
+  arg1,
+  arg2
+) {
+  const {
+    profile,
+    fastingRule,
+  } =
+    extractParams(
+      arg1,
+      arg2
     );
 
-  const fastingData =
-    serializeFasting(
-      fasting
+  const isVegan =
+    Boolean(
+      fastingRule
+        .isVeganRequired
     );
 
-  const systemPrompt =
-    buildChatbotSystemPrompt(
-      profileData
-    );
+  const promptText = `
+Create a personalized 7-day Ethiopian meal plan.
 
-  const userPrompt = `
-Create a personalized 7-day Ethiopian meal plan for me.
+USER PROFILE:
+${safeJson(profile)}
 
-CURRENT WEEK:
-${week.startDate} to ${week.endDate}
+FASTING RULE:
+${safeJson(fastingRule)}
 
-DATES:
-${week.dates.join(', ')}
+STRICT VEGAN REQUIRED:
+${isVegan}
 
-FASTING INFORMATION:
+DAILY CALORIES:
+${profile.dailyCalorieTarget || 2000} kcal
+
+DAILY PROTEIN:
+${profile.dailyProteinTarget || 60} g
+
+DIETARY RESTRICTIONS:
 ${safeJson(
-  fastingData
+  profile.dietaryRestrictions ||
+    []
 )}
 
-PREFERENCES:
+HEALTH CONDITIONS:
 ${safeJson(
-  preferences
+  profile.healthConditions ||
+    []
 )}
 
-Create a practical meal plan using realistic Ethiopian foods
-and ingredients.
+IMPORTANT:
 
-Respect my fasting practice, allergies, dietary restrictions,
-health conditions, and the information in my profile.
+1. Respect the user's fasting practice.
+2. Respect dietary restrictions.
+3. Respect allergies.
+4. Use Ethiopian foods whenever appropriate.
+5. Use realistic meals.
+6. Consider calories and protein.
+7. Do not invent medical diagnoses.
+8. Nutritional values are estimates.
 
-Give useful nutrition information where appropriate.
+Return ONLY valid JSON.
 
-Write the answer as normal readable text.
+Do not use markdown.
+Do not use code fences.
 
-Do not return JSON.
+Use this structure:
 
-Do not use markdown code blocks.
+{
+  "summary": "7-Day Personalized Ethiopian Meal Plan",
+  "planDays": [
+    {
+      "day": "Monday",
+      "isFasting": false,
+      "meals": [
+        {
+          "mealType": "breakfast",
+          "foodName": "Kinche",
+          "calories": 320,
+          "proteinGrams": 8,
+          "carbsGrams": 45,
+          "fatsGrams": 6,
+          "ironMg": 3.5
+        }
+      ]
+    }
+  ]
+}
 
-Do not wrap the answer in JSON.
-
-Do not explain that you are generating a plan.
-
-Just give me the meal plan in plain readable text.
+The planDays array must contain 7 days.
 `.trim();
 
-  return await generatePlainText({
-    systemPrompt,
+  const apiKey =
+    getApiKey();
 
-    userPrompt,
+  if (!apiKey) {
+    return mealPlanFallback(
+      isVegan
+    );
+  }
 
-    maxTokens:
-      6500,
+  try {
+    const result =
+      await callOpenRouter({
+        messages: [
+          {
+            role:
+              'system',
 
-    retryMaxTokens:
-      9000,
+            content:
+              'You are EthioNutri AI. Return valid JSON only.',
+          },
 
-    temperature:
-      0.5,
+          {
+            role:
+              'user',
 
-    label:
-      'meal-plan',
-  });
+            content:
+              promptText,
+          },
+        ],
+
+        temperature:
+          0.3,
+
+        maxTokens:
+          5000,
+
+        timeout:
+          40000,
+
+        models:
+          TEXT_MODELS,
+      });
+
+    let text =
+      result.content
+        .trim();
+
+    text =
+      text
+        .replace(
+          /```json/gi,
+          ''
+        )
+        .replace(
+          /```/g,
+          ''
+        )
+        .trim();
+
+    const firstBrace =
+      text.indexOf('{');
+
+    const lastBrace =
+      text.lastIndexOf('}');
+
+    if (
+      firstBrace === -1 ||
+      lastBrace === -1
+    ) {
+      throw new Error(
+        'Meal plan JSON not found'
+      );
+    }
+
+    const parsed =
+      JSON.parse(
+        text.substring(
+          firstBrace,
+          lastBrace + 1
+        )
+      );
+
+    if (
+      !parsed ||
+      !Array.isArray(
+        parsed.planDays
+      ) ||
+      parsed.planDays.length !== 7
+    ) {
+      throw new Error(
+        'Invalid 7-day meal plan structure'
+      );
+    }
+
+    return parsed;
+
+  } catch (error) {
+    console.error(
+      '[EthioNutri AI] Meal plan generation failed:',
+      error?.response?.data ||
+        error.message
+    );
+
+    return mealPlanFallback(
+      isVegan
+    );
+  }
+}
+
+// ============================================================
+// MEAL PLAN FALLBACK
+// ============================================================
+
+function mealPlanFallback(
+  isVegan
+) {
+  return {
+    summary:
+      'EthioNutri 7-Day Ethiopian Meal Plan',
+
+    planDays: [
+      {
+        day:
+          'Monday',
+
+        isFasting:
+          false,
+
+        meals: [
+          {
+            mealType:
+              'breakfast',
+
+            foodName:
+              'Teff Genfo with plant oil',
+
+            calories:
+              320,
+
+            proteinGrams:
+              8,
+
+            carbsGrams:
+              45,
+
+            fatsGrams:
+              6,
+
+            ironMg:
+              3.5,
+          },
+
+          {
+            mealType:
+              'lunch',
+
+            foodName:
+              isVegan
+                ? 'Shiro Tegabino with Teff Injera'
+                : 'Doro Wat with Teff Injera',
+
+            calories:
+              540,
+
+            proteinGrams:
+              32,
+
+            carbsGrams:
+              62,
+
+            fatsGrams:
+              12,
+
+            ironMg:
+              8.5,
+          },
+
+          {
+            mealType:
+              'dinner',
+
+            foodName:
+              'Misir Wat and Gomen with Injera',
+
+            calories:
+              400,
+
+            proteinGrams:
+              17,
+
+            carbsGrams:
+              65,
+
+            fatsGrams:
+              7,
+
+            ironMg:
+              8.0,
+          },
+        ],
+      },
+
+      {
+        day:
+          'Tuesday',
+
+        isFasting:
+          false,
+
+        meals: [
+          {
+            mealType:
+              'breakfast',
+
+            foodName:
+              'Firfir with Egg',
+
+            calories:
+              380,
+
+            proteinGrams:
+              16,
+
+            carbsGrams:
+              48,
+
+            fatsGrams:
+              12,
+
+            ironMg:
+              4,
+          },
+
+          {
+            mealType:
+              'lunch',
+
+            foodName:
+              'Tibs with Injera',
+
+            calories:
+              560,
+
+            proteinGrams:
+              35,
+
+            carbsGrams:
+              58,
+
+            fatsGrams:
+              16,
+
+            ironMg:
+              6.8,
+          },
+
+          {
+            mealType:
+              'dinner',
+
+            foodName:
+              'Gomen and Lentils with Injera',
+
+            calories:
+              400,
+
+            proteinGrams:
+              18,
+
+            carbsGrams:
+              65,
+
+            fatsGrams:
+              7,
+
+            ironMg:
+              8,
+          },
+        ],
+      },
+
+      {
+        day:
+          'Wednesday',
+
+        isFasting:
+          true,
+
+        meals: [
+          {
+            mealType:
+              'breakfast',
+
+            foodName:
+              'Telba Fitfit',
+
+            calories:
+              290,
+
+            proteinGrams:
+              9,
+
+            carbsGrams:
+              48,
+
+            fatsGrams:
+              5,
+
+            ironMg:
+              3,
+          },
+
+          {
+            mealType:
+              'lunch',
+
+            foodName:
+              'Shiro Tegabino with Injera and Gomen',
+
+            calories:
+              480,
+
+            proteinGrams:
+              18,
+
+            carbsGrams:
+              75,
+
+            fatsGrams:
+              9,
+
+            ironMg:
+              13.5,
+          },
+
+          {
+            mealType:
+              'dinner',
+
+            foodName:
+              'Misir Wat and Atkilt Wat',
+
+            calories:
+              390,
+
+            proteinGrams:
+              16,
+
+            carbsGrams:
+              65,
+
+            fatsGrams:
+              6,
+
+            ironMg:
+              8.4,
+          },
+        ],
+      },
+
+      {
+        day:
+          'Thursday',
+
+        isFasting:
+          false,
+
+        meals: [
+          {
+            mealType:
+              'breakfast',
+
+            foodName:
+              'Genfo with Yogurt',
+
+            calories:
+              350,
+
+            proteinGrams:
+              12,
+
+            carbsGrams:
+              50,
+
+            fatsGrams:
+              8,
+
+            ironMg:
+              3.5,
+          },
+
+          {
+            mealType:
+              'lunch',
+
+            foodName:
+              'Doro Wat and Injera',
+
+            calories:
+              580,
+
+            proteinGrams:
+              36,
+
+            carbsGrams:
+              60,
+
+            fatsGrams:
+              14,
+
+            ironMg:
+              8.5,
+          },
+
+          {
+            mealType:
+              'dinner',
+
+            foodName:
+              'Fosolia and Gomen with Injera',
+
+            calories:
+              390,
+
+            proteinGrams:
+              15,
+
+            carbsGrams:
+              68,
+
+            fatsGrams:
+              6,
+
+            ironMg:
+              7.2,
+          },
+        ],
+      },
+
+      {
+        day:
+          'Friday',
+
+        isFasting:
+          true,
+
+        meals: [
+          {
+            mealType:
+              'breakfast',
+
+            foodName:
+              'Bulla Porridge',
+
+            calories:
+              260,
+
+            proteinGrams:
+              7,
+
+            carbsGrams:
+              46,
+
+            fatsGrams:
+              4,
+
+            ironMg:
+              2.8,
+          },
+
+          {
+            mealType:
+              'lunch',
+
+            foodName:
+              'Shiro Wat with Brown Teff Injera',
+
+            calories:
+              460,
+
+            proteinGrams:
+              19,
+
+            carbsGrams:
+              70,
+
+            fatsGrams:
+              8,
+
+            ironMg:
+              12,
+          },
+
+          {
+            mealType:
+              'dinner',
+
+            foodName:
+              'Gomen and Suf Fitfit',
+
+            calories:
+              370,
+
+            proteinGrams:
+              13,
+
+            carbsGrams:
+              56,
+
+            fatsGrams:
+              8,
+
+            ironMg:
+              7.8,
+          },
+        ],
+      },
+
+      {
+        day:
+          'Saturday',
+
+        isFasting:
+          false,
+
+        meals: [
+          {
+            mealType:
+              'breakfast',
+
+            foodName:
+              'Chechebsa',
+
+            calories:
+              400,
+
+            proteinGrams:
+              10,
+
+            carbsGrams:
+              52,
+
+            fatsGrams:
+              15,
+
+            ironMg:
+              3.8,
+          },
+
+          {
+            mealType:
+              'lunch',
+
+            foodName:
+              'Kitfo with Injera',
+
+            calories:
+              620,
+
+            proteinGrams:
+              38,
+
+            carbsGrams:
+              55,
+
+            fatsGrams:
+              24,
+
+            ironMg:
+              7,
+          },
+
+          {
+            mealType:
+              'dinner',
+
+            foodName:
+              'Vegetable Alicha with Injera',
+
+            calories:
+              360,
+
+            proteinGrams:
+              12,
+
+            carbsGrams:
+              62,
+
+            fatsGrams:
+              6,
+
+            ironMg:
+              6.5,
+          },
+        ],
+      },
+
+      {
+        day:
+          'Sunday',
+
+        isFasting:
+          false,
+
+        meals: [
+          {
+            mealType:
+              'breakfast',
+
+            foodName:
+              'Kinche with Milk',
+
+            calories:
+              330,
+
+            proteinGrams:
+              11,
+
+            carbsGrams:
+              48,
+
+            fatsGrams:
+              8,
+
+            ironMg:
+              3,
+          },
+
+          {
+            mealType:
+              'lunch',
+
+            foodName:
+              'Doro Wat with Teff Injera',
+
+            calories:
+              580,
+
+            proteinGrams:
+              36,
+
+            carbsGrams:
+              60,
+
+            fatsGrams:
+              14,
+
+            ironMg:
+              8.5,
+          },
+
+          {
+            mealType:
+              'dinner',
+
+            foodName:
+              'Misir Wat and Gomen with Injera',
+
+            calories:
+              400,
+
+            proteinGrams:
+              17,
+
+            carbsGrams:
+              65,
+
+            fatsGrams:
+              7,
+
+            ironMg:
+              8,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+// ============================================================
+// CHATBOT
+// ============================================================
+
+async function sendAiChatPrompt(
+  promptMessage,
+  userProfile = {}
+) {
+  const apiKey =
+    getApiKey();
+
+  if (!apiKey) {
+    return chatFallback();
+  }
+
+  try {
+    const systemPrompt =
+      buildChatbotSystemPrompt(
+        userProfile
+      );
+
+    const result =
+      await callOpenRouter({
+        models:
+          CHATBOT_MODELS,
+
+        messages: [
+          {
+            role:
+              'system',
+
+            content:
+              systemPrompt,
+          },
+
+          {
+            role:
+              'user',
+
+            content:
+              typeof promptMessage ===
+              'string'
+                ? promptMessage
+                : safeJson(
+                    promptMessage
+                  ),
+          },
+        ],
+
+        temperature:
+          0.6,
+
+        maxTokens:
+          700,
+
+        timeout:
+          CHAT_TIMEOUT,
+      });
+
+    return result.content;
+
+  } catch (error) {
+    console.error(
+      '[EthioNutri AI] Chat failed:',
+      error?.response?.data ||
+        error.message
+    );
+
+    return chatFallback();
+  }
+}
+
+// ============================================================
+// CHAT FALLBACK
+// ============================================================
+
+function chatFallback() {
+  return `
+For Ethiopian fasting, good plant-protein choices include shiro, misir, beans, chickpeas and lentils paired with teff injera.
+
+For iron, combine legumes and leafy greens such as gomen with vitamin-C-rich foods such as lemon and fresh vegetables.
+
+For personalized nutrition advice, calorie, protein, health and dietary requirements should be considered.
+`.trim();
 }
 
 // ============================================================
 // EXERCISE PLAN
 // ============================================================
 
-async function generateExercisePlan({
+async function generateExercisePlanWithAI({
   profile,
   preferences = {},
 }) {
   const week =
     getCurrentWeek();
-
-  console.log(
-    `[EthioNutri AI] Generating exercise plan: ${week.startDate} -> ${week.endDate}`
-  );
 
   const profileData =
     serializeProfile(
@@ -910,7 +1600,7 @@ async function generateExercisePlan({
     );
 
   const userPrompt = `
-Create a personalized 7-day exercise plan for me.
+Create a personalized 7-day exercise plan.
 
 CURRENT WEEK:
 ${week.startDate} to ${week.endDate}
@@ -929,26 +1619,22 @@ Respect known limitations or restrictions.
 
 Keep the exercises practical and realistic.
 
-Include rest or recovery when appropriate.
+Include rest and recovery where appropriate.
 
 Do not invent medical conditions.
 
-Do not prescribe treatment for medical conditions.
+Do not prescribe treatment.
 
 Write the answer as normal readable text.
 
 Do not return JSON.
 
-Do not use markdown code blocks.
+Do not use code blocks.
 
-Do not wrap the answer in JSON.
-
-Do not explain that you are generating a plan.
-
-Just give me the exercise plan in plain readable text.
+Just give me the exercise plan.
 `.trim();
 
-  return await generatePlainText({
+  return generatePlainText({
     systemPrompt,
 
     userPrompt,
@@ -956,406 +1642,632 @@ Just give me the exercise plan in plain readable text.
     maxTokens:
       3500,
 
-    retryMaxTokens:
-      5500,
-
     temperature:
       0.5,
 
     label:
       'exercise-plan',
+
+    models:
+      TEXT_MODELS,
   });
 }
 
 // ============================================================
-// CHATBOT
+// GROCERY LIST
+//
+// THIS IS NOW COMPLETELY PLAIN TEXT.
+//
+// NO JSON.
+// NO JSON.parse().
+// NO JSON VALIDATION.
+// NO response_format.
+// NO structured-output requirement.
+//
+// The AI response is returned directly to the caller.
 // ============================================================
-//
-// THIS IS THE IMPORTANT FIX.
-//
-// Before:
-// Gemma -> 429 -> chatFallback()
-//
-// Now:
-// Gemma -> 429 -> Gemma 31B -> 429 -> Nemotron -> ...
-//
-// The personalized chatbot prompt remains unchanged.
-// ============================================================
 
-async function chatWithAI({
-  profile,
-  promptMessage,
-  models,
-}) {
-  const profileData =
-    serializeProfile(
-      profile
-    );
-
-  let modelList;
-
-  if (
-    Array.isArray(models) &&
-    models.length > 0
-  ) {
-    modelList =
-      uniqueModels([
-        ...models,
-
-        ...KNOWN_FREE_FALLBACK_MODELS,
-      ]);
-  } else {
-    modelList =
-      await getTextModels();
-  }
-
-  if (
-    modelList.length === 0
-  ) {
-    modelList =
-      uniqueModels([
-        GEMMA_MODEL,
-
-        ...KNOWN_FREE_FALLBACK_MODELS,
-      ]);
-  }
-
-  const systemPrompt =
-    buildChatbotSystemPrompt(
-      profileData
-    );
-
-  const userContent =
-    typeof promptMessage ===
-    'string'
-      ? promptMessage
-      : JSON.stringify(
-          promptMessage
-        );
-
-  let lastError =
+async function generateGroceryListWithAI(
+  arg1,
+  arg2
+) {
+  let mealPlan =
     null;
 
-  console.log(
-    '[EthioNutri AI] Chat model fallback order:'
-  );
+  let weekIdentifier =
+    null;
 
-  console.log(
-    modelList.join(
-      ' -> '
-    )
-  );
+  let profile =
+    {};
 
-  for (
-    const model of modelList
+  // ----------------------------------------------------------
+  // Accept several calling styles so existing routes continue
+  // to work.
+  // ----------------------------------------------------------
+
+  if (
+    arg1 &&
+    typeof arg1 ===
+      'object'
   ) {
-    console.log(
-      `[EthioNutri AI] Trying chatbot model: ${model}`
-    );
+    mealPlan =
+      arg1.mealPlan ||
+      arg1.plan ||
+      arg1.weeklyMealPlan ||
+      null;
 
-    try {
-      const result =
-        await callOpenRouter({
-          model,
+    weekIdentifier =
+      arg1.weekIdentifier ||
+      arg1.week ||
+      null;
 
-          messages: [
-            {
-              role:
-                'system',
+    profile =
+      arg1.profile ||
+      {};
+  } else {
+    mealPlan =
+      arg1 ||
+      null;
 
-              content:
-                systemPrompt,
-            },
-
-            {
-              role:
-                'user',
-
-              content:
-                userContent,
-            },
-          ],
-
-          temperature:
-            0.6,
-
-          maxTokens:
-            700,
-
-          timeout:
-            CHAT_TIMEOUT,
-        });
-
-      console.log(
-        `[EthioNutri AI] Chat succeeded using ${model}`
-      );
-
-      return result.content;
-    } catch (error) {
-      lastError =
-        error;
-
-      const status =
-        error?.response?.status ||
-        error?.response?.data?.error?.code ||
-        'N/A';
-
-      const apiError =
-        error?.response?.data ||
-        error?.message ||
-        error;
-
-      console.error(
-        `[EthioNutri AI] Chat model failed: ${model} | HTTP ${status}`
-      );
-
-      console.error(
-        apiError
-      );
-
-      // --------------------------------------------------------
-      // RATE LIMIT
-      // --------------------------------------------------------
-      //
-      // THIS FIXES YOUR 429 ERROR.
-      //
-      // Do not stop the chatbot.
-      // Move to the next model.
-      // --------------------------------------------------------
-
-      if (
-        status === 429
-      ) {
-        console.warn(
-          `[EthioNutri AI] ${model} is rate-limited. Trying the next chatbot model.`
-        );
-
-        continue;
-      }
-
-      // --------------------------------------------------------
-      // AUTHENTICATION
-      // --------------------------------------------------------
-
-      if (
-        status === 401 ||
-        status === 403
-      ) {
-        console.error(
-          '[EthioNutri AI] OpenRouter authentication/permission error. Check OPENROUTER_API_KEY.'
-        );
-
-        break;
-      }
-
-      // --------------------------------------------------------
-      // MODEL UNAVAILABLE
-      // --------------------------------------------------------
-
-      if (
-        status === 404
-      ) {
-        console.warn(
-          `[EthioNutri AI] Model ${model} is unavailable. Trying the next chatbot model.`
-        );
-
-        continue;
-      }
-
-      // --------------------------------------------------------
-      // OTHER ERRORS
-      // --------------------------------------------------------
-
-      console.warn(
-        `[EthioNutri AI] Chat failed on ${model}. Trying the next available model.`
-      );
-    }
+    weekIdentifier =
+      arg2 ||
+      null;
   }
 
-  console.error(
-    '[EthioNutri AI] Chat completely failed on all available models:',
-    lastError?.response?.data ||
-      lastError?.message ||
-      lastError
+  console.log(
+    `[Grocery] Generating grocery list for ${
+      weekIdentifier ||
+      'current week'
+    }`
   );
 
-  return chatFallback();
+  if (!mealPlan) {
+    throw new Error(
+      'No meal plan was supplied for grocery generation'
+    );
+  }
+
+  console.log(
+    '[Grocery] Current meal plan extracted successfully.'
+  );
+
+  console.log(
+    '[Grocery] Exercise plan excluded from grocery prompt.'
+  );
+const systemPrompt = `
+You are EthioNutri AI, an Ethiopian nutrition and grocery-planning assistant.
+
+TASK:
+Create ONE consolidated weekly grocery list from the provided weekly meal plan.
+
+IMPORTANT:
+- Process the meal plan internally.
+- DO NOT return, explain, summarize, or reproduce the meal plan.
+- DO NOT return meal names.
+- Return ONLY the final grocery shopping list.
+
+INGREDIENTS:
+- List actual ingredients that need to be bought.
+- Combine repeated ingredients into one total weekly quantity.
+- Use practical units such as kg, g, L, ml, pieces, bunches, etc.
+- Do not invent ingredients or meals.
+- Exclude exercise, gym items, and supplements.
+
+FASTING:
+Respect Ethiopian Orthodox fasting, especially Wednesday and Friday.
+Exclude animal products on fasting days.
+
+DIETARY RESTRICTIONS:
+Respect all dietary restrictions provided by the user.
+
+PRICES:
+Estimate realistic Ethiopian prices in ETB for the total weekly quantity.
+Show the estimated price beside each item.
+Calculate the total estimated weekly cost.
+
+OUTPUT:
+Return ONLY simple KEY: VALUE pairs.
+
+Format each grocery item like:
+ingredient: quantity - price
+
+SAMPLE OUTPUT:
+Teff flour: 500 g - 200 ETB
+Red lentils: 1 kg - 250 ETB
+Tomatoes: 2 kg - 180 ETB
+Onions: 1 kg - 120 ETB
+Cooking oil: 1 L - 250 ETB
+Total: 1000 ETB
+
+RULES:
+- No JSON.
+- No arrays or objects.
+- No markdown.
+- No tables.
+- No bullets.
+- No headings.
+- No explanations.
+- No reasoning.
+- No introduction.
+- No conclusion.
+- No meal names.
+- No daily grocery lists.
+- Do not repeat an ingredient.
+- Return only the final grocery list and total.
+
+Read and process the complete meal plan internally, then output ONLY the grocery list.
+`.trim();
+
+
+  const userPrompt = `
+Create the weekly grocery shopping list from this saved meal plan.
+
+WEEK:
+${weekIdentifier || 'current week'}
+
+USER PROFILE:
+${safeJson(profile)}
+
+SAVED MEAL PLAN:
+${safeJson(mealPlan)}
+
+Remember:
+
+Return ONLY normal readable text.
+
+NO JSON.
+
+NO JSON code block.
+
+NO structured data.
+
+NO exercise items.
+
+Use a practical Ethiopian grocery list format.
+`.trim();
+
+  return generatePlainText({
+    systemPrompt,
+
+    userPrompt,
+
+    maxTokens:
+      2500,
+
+    temperature:
+      0.2,
+
+    timeout:
+      REQUEST_TIMEOUT,
+
+    label:
+      'grocery',
+
+    models:
+      TEXT_MODELS,
+  });
 }
 
 // ============================================================
-// ORIGINAL CHAT FUNCTION COMPATIBILITY
-// ============================================================
-//
-// Keeps compatibility with code that calls:
-// sendAiChatPrompt(prompt, profile)
+// IMAGE INPUT
 // ============================================================
 
-async function sendAiChatPrompt(
-  promptMessage,
+function imageInputToDataUrl(
+  imageInput
+) {
+  if (!imageInput) {
+    throw new Error(
+      'No image supplied'
+    );
+  }
+
+  const value =
+    String(
+      imageInput
+    ).trim();
+
+  if (!value) {
+    throw new Error(
+      'Image input is empty'
+    );
+  }
+
+  // Remote URL
+  if (
+    value.startsWith(
+      'http://'
+    ) ||
+    value.startsWith(
+      'https://'
+    )
+  ) {
+    return value;
+  }
+
+  // Already a data URL
+  if (
+    value.startsWith(
+      'data:image/'
+    )
+  ) {
+    return value;
+  }
+
+  // Local filesystem path
+  if (
+    fs.existsSync(value)
+  ) {
+    const buffer =
+      fs.readFileSync(
+        value
+      );
+
+    const extension =
+      path
+        .extname(value)
+        .toLowerCase();
+
+    let mimeType =
+      'image/jpeg';
+
+    if (
+      extension ===
+      '.png'
+    ) {
+      mimeType =
+        'image/png';
+    } else if (
+      extension ===
+      '.webp'
+    ) {
+      mimeType =
+        'image/webp';
+    } else if (
+      extension ===
+      '.gif'
+    ) {
+      mimeType =
+        'image/gif';
+    }
+
+    return (
+      `data:${mimeType};base64,` +
+      buffer.toString(
+        'base64'
+      )
+    );
+  }
+
+  // Raw base64
+  return (
+    `data:image/jpeg;base64,${value}`
+  );
+}
+
+// ============================================================
+// CLEAN JSON RESPONSE
+//
+// Used ONLY by image recognition and meal-plan generation.
+// Grocery DOES NOT use this.
+// ============================================================
+
+function cleanJsonResponse(
+  content
+) {
+  if (!content) {
+    throw new Error(
+      'AI returned an empty response'
+    );
+  }
+
+  let text =
+    String(content)
+      .trim();
+
+  text =
+    text
+      .replace(
+        /```json/gi,
+        ''
+      )
+      .replace(
+        /```/g,
+        ''
+      )
+      .trim();
+
+  const firstBrace =
+    text.indexOf('{');
+
+  const lastBrace =
+    text.lastIndexOf('}');
+
+  if (
+    firstBrace === -1 ||
+    lastBrace === -1
+  ) {
+    throw new Error(
+      'No JSON object found in AI response'
+    );
+  }
+
+  return text.substring(
+    firstBrace,
+    lastBrace + 1
+  );
+}
+
+// ============================================================
+// IMAGE MEAL SCANNING
+// ============================================================
+
+async function analyzeMealImageWithAI(
+  imageBase64OrUrl,
   userProfile = {}
 ) {
-  return chatWithAI({
-    profile:
-      userProfile,
+  const apiKey =
+    getApiKey();
 
-    promptMessage,
-  });
-}
-
-// ============================================================
-// CHAT FALLBACK
-// ============================================================
-
-function chatFallback() {
-  return `
-For Ethiopian fasting, good plant-protein choices include
-shiro, misir, beans, chickpeas and lentils paired with
-teff injera.
-
-For iron, combine legumes and leafy greens such as gomen
-with vitamin-C-rich foods such as lemon and fresh vegetables.
-
-For personalized nutrition advice, your calorie, protein,
-health and dietary requirements should be considered.
-`.trim();
-}
-
-// ============================================================
-// IMAGE / VISION ANALYSIS
-// ============================================================
-
-async function analyzeImage({
-  profile,
-  imageUrl,
-  prompt =
-    'Analyze this image and provide useful nutrition-related information.',
-}) {
-  const profileData =
-    serializeProfile(
-      profile
-    );
-
-  const systemPrompt =
-    buildChatbotSystemPrompt(
-      profileData
-    );
-
-  let lastError =
-    null;
-
-  const models =
-    uniqueModels([
-      ...VISION_MODELS,
-
-      ...KNOWN_FREE_FALLBACK_MODELS,
-    ]);
-
-  for (
-    const model of models
-  ) {
-    console.log(
-      `[EthioNutri AI] Trying vision model: ${model}`
-    );
-
-    try {
-      const result =
-        await callOpenRouter({
-          model,
-
-          messages: [
-            {
-              role:
-                'system',
-
-              content:
-                systemPrompt,
-            },
-
-            {
-              role:
-                'user',
-
-              content: [
-                {
-                  type:
-                    'text',
-
-                  text:
-                    prompt,
-                },
-
-                {
-                  type:
-                    'image_url',
-
-                  image_url: {
-                    url:
-                      imageUrl,
-                  },
-                },
-              ],
-            },
-          ],
-
-          temperature:
-            0.4,
-
-          maxTokens:
-            800,
-
-          timeout:
-            VISION_TIMEOUT,
-        });
-
-      console.log(
-        `[EthioNutri AI] Vision analysis succeeded using ${model}`
-      );
-
-      return result.content;
-    } catch (error) {
-      lastError =
-        error;
-
-      const status =
-        error?.response
-          ?.status ||
-        'N/A';
-
-      console.error(
-        `[EthioNutri AI] Vision model failed: ${model} | HTTP ${status}`
-      );
-
-      if (
-        status === 429
-      ) {
-        console.warn(
-          `[EthioNutri AI] ${model} is rate-limited. Moving to next vision model.`
-        );
-
-        continue;
-      }
-
-      if (
-        status === 401 ||
-        status === 403
-      ) {
-        break;
-      }
-
-      if (
-        status === 404
-      ) {
-        continue;
-      }
-    }
+  if (!apiKey) {
+    return visionFallback();
   }
 
-  throw (
-    lastError ||
-    new Error(
-      'Vision analysis failed on all available models'
-    )
-  );
+  if (!imageBase64OrUrl) {
+    return visionFallback();
+  }
+
+  try {
+    const imageUrl =
+      imageInputToDataUrl(
+        imageBase64OrUrl
+      );
+
+    const systemPrompt = `
+You are EthioNutri AI, an Ethiopian food recognition and nutrition assistant.
+
+Analyze the provided food image.
+
+Identify the food only from visible evidence.
+
+Do not invent certainty.
+
+Nutritional values are estimates.
+
+Return ONLY valid JSON.
+
+Do not use markdown.
+Do not use code fences.
+
+Return:
+
+{
+  "foodName": "",
+  "portionGrams": 0,
+  "calories": 0,
+  "proteinGrams": 0,
+  "carbsGrams": 0,
+  "fatsGrams": 0,
+  "ironMg": 0,
+  "isVegan": false,
+  "description": ""
+}
+`.trim();
+
+    const result =
+      await callOpenRouter({
+        models:
+          VISION_MODELS,
+
+        messages: [
+          {
+            role:
+              'system',
+
+            content:
+              systemPrompt,
+          },
+
+          {
+            role:
+              'user',
+
+            content: [
+              {
+                type:
+                  'text',
+
+                text: `
+Identify the food in this image.
+
+User fasting practice:
+${
+  userProfile.fastingPractice ||
+  'Unknown'
+}
+
+Return valid JSON only.
+`,
+              },
+
+              {
+                type:
+                  'image_url',
+
+                image_url: {
+                  url:
+                    imageUrl,
+                },
+              },
+            ],
+          },
+        ],
+
+        temperature:
+          0.2,
+
+        maxTokens:
+          700,
+
+        timeout:
+          VISION_TIMEOUT,
+      });
+
+    const cleaned =
+      cleanJsonResponse(
+        result.content
+      );
+
+    const parsed =
+      JSON.parse(
+        cleaned
+      );
+
+    if (
+      !parsed ||
+      !parsed.foodName
+    ) {
+      throw new Error(
+        'Invalid image-analysis result'
+      );
+    }
+
+    parsed.portionGrams =
+      Number(
+        parsed.portionGrams
+      ) || 0;
+
+    parsed.calories =
+      Number(
+        parsed.calories
+      ) || 0;
+
+    parsed.proteinGrams =
+      Number(
+        parsed.proteinGrams
+      ) || 0;
+
+    parsed.carbsGrams =
+      Number(
+        parsed.carbsGrams
+      ) || 0;
+
+    parsed.fatsGrams =
+      Number(
+        parsed.fatsGrams
+      ) || 0;
+
+    parsed.ironMg =
+      Number(
+        parsed.ironMg
+      ) || 0;
+
+    parsed.isVegan =
+      Boolean(
+        parsed.isVegan
+      );
+
+    parsed.description =
+      String(
+        parsed.description ||
+        ''
+      );
+
+    console.log(
+      `[EthioNutri AI] Image analysis succeeded using ${result.model}`
+    );
+
+    return parsed;
+
+  } catch (error) {
+    console.error(
+      '[EthioNutri AI] Vision analysis failed:',
+      error?.response?.data ||
+        error.message
+    );
+
+    return visionFallback();
+  }
+}
+
+// ============================================================
+// VISION FALLBACK
+// ============================================================
+
+function visionFallback() {
+  return {
+    foodName:
+      'Food could not be identified',
+
+    portionGrams:
+      0,
+
+    calories:
+      0,
+
+    proteinGrams:
+      0,
+
+    carbsGrams:
+      0,
+
+    fatsGrams:
+      0,
+
+    ironMg:
+      0,
+
+    isVegan:
+      false,
+
+    description:
+      'AI food recognition was unavailable. No nutritional values were estimated from the image.',
+
+    aiUnavailable:
+      true,
+  };
+}
+
+// ============================================================
+// MODEL DISCOVERY
+// ============================================================
+
+async function getAvailableModels() {
+  const apiKey =
+    getApiKey();
+
+  if (!apiKey) {
+    return [];
+  }
+
+  try {
+    const response =
+      await axios.get(
+        OPENROUTER_MODELS_URL,
+        {
+          headers:
+            getHeaders(
+              apiKey
+            ),
+
+          timeout:
+            MODEL_DISCOVERY_TIMEOUT,
+        }
+      );
+
+    return (
+      response?.data
+        ?.data || []
+    );
+
+  } catch (error) {
+    console.error(
+      '[EthioNutri AI] Model discovery failed:',
+      error?.message ||
+        error
+    );
+
+    return [];
+  }
 }
 
 // ============================================================
@@ -1371,35 +2283,18 @@ module.exports = {
 
   callOpenRouter,
 
-  // ----------------------------------------------------------
   // Meal plan
-  // ----------------------------------------------------------
+  generateMealPlanWithAI,
 
-  generateMealPlan,
-
-  generateMealPlanWithAI:
-    generateMealPlan,
-
-  // ----------------------------------------------------------
-  // Exercise
-  // ----------------------------------------------------------
-
-  generateExercisePlan,
-
-  generateExercisePlanWithAI:
-    generateExercisePlan,
-
-  // ----------------------------------------------------------
-  // Chatbot
-  // ----------------------------------------------------------
-
-  chatWithAI,
-
+  // Chat
   sendAiChatPrompt,
 
-  // ----------------------------------------------------------
-  // Vision
-  // ----------------------------------------------------------
+  // Exercise
+  generateExercisePlanWithAI,
 
-  analyzeImage,
+  // Grocery
+  generateGroceryListWithAI,
+
+  // Vision
+  analyzeMealImageWithAI,
 };

@@ -116,7 +116,53 @@ const exerciseLogs = pgTable('exercise_logs', {
   intensity: varchar('intensity', { length: 50 }).default('Moderate'),
   loggedAt: timestamp('logged_at').defaultNow().notNull(),
 });
+// 9. Sleep Logs Table
+const sleepLogs = pgTable('sleep_logs', {
 
+  id: uuid('id').defaultRandom().primaryKey(),
+
+  userId: uuid('user_id')
+    .references(() => users.id, { onDelete: 'cascade' })
+    .notNull(),
+
+  sleepDate: varchar('sleep_date', { length: 20 }).notNull(),
+
+  bedtime: timestamp('bedtime').notNull(),
+
+  wakeTime: timestamp('wake_time').notNull(),
+
+  durationMinutes: integer('duration_minutes').notNull(),
+
+  quality: integer('quality').default(3).notNull(),
+
+  notes: text('notes'),
+
+  createdAt: timestamp('created_at')
+    .defaultNow()
+    .notNull(),
+
+});
+
+// 10. Mood Logs Table
+const moodLogs = pgTable('mood_logs', {
+
+  id: uuid('id').defaultRandom().primaryKey(),
+
+  userId: uuid('user_id')
+    .references(() => users.id, { onDelete: 'cascade' })
+    .notNull(),
+
+  mood: varchar('mood', { length: 50 }).notNull(),
+
+  moodScore: integer('mood_score').notNull(),
+
+  note: text('note'),
+
+  loggedAt: timestamp('logged_at')
+    .defaultNow()
+    .notNull(),
+
+});
 // 9. Nutritionists Table
 const nutritionists = pgTable('nutritionists', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -171,6 +217,8 @@ module.exports = {
   mealPlans,
   groceryItems,
   exerciseLogs,
+  sleepLogs,
+  moodLogs,
   nutritionists,
   appointments,
   supervisionMessages,

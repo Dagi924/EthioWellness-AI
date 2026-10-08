@@ -13,7 +13,8 @@ const exerciseRoutes = require('./routes/exercise');
 const supervisionRoutes = require('./routes/supervision');
 const paymentsRoutes = require('./routes/payments');
 const adminRoutes = require('./routes/admin');
-
+const sleepRoutes = require('./routes/sleep');
+const moodRoutes = require('./routes/mood');
 const app = express();
 
 // ============================================================
@@ -146,7 +147,9 @@ app.use('/api/v1/supervision', supervisionRoutes);
 app.use('/api/v1/payments', paymentsRoutes);
 
 app.use('/api/v1/admin', adminRoutes);
-
+app.use('/api/v1/exercise', exerciseRoutes);
+app.use('/api/v1/sleep', sleepRoutes);
+app.use('/api/v1/mood', moodRoutes);
 // ============================================================
 // GLOBAL ERROR HANDLER
 // ============================================================

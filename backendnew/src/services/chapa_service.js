@@ -1,3 +1,4 @@
+
 const axios = require('axios');
 
 const CHAPA_API_URL = 'https://api.chapa.co/v1';
@@ -24,30 +25,36 @@ async function initializeChapaPayment({
   email,
   name,
   phoneNumber,
-  title = ' Subscription'
+  title = 'Subscription'
 }) {
   const secretKey = getSecretKey();
 
-  const backendUrl =
-    process.env.BACKEND_URL || 'http://localhost:5000';
+  // Local backend URL.
+  // Override BACKEND_URL in .env when needed.
+  const backendUrl = (
+    process.env.BACKEND_URL || 'http://localhost:5000'
+  ).replace(/\/+$/, '');
 
-  const frontendUrl =
-    process.env.FRONTEND_URL || 'http://localhost:3000';
+  // Chapa's browser return goes to the backend success route,
+  // not the unavailable frontend on port 3000.
+  const returnUrl =
+    `${backendUrl}/api/v1/payments/success` +
+    `?tx_ref=${encodeURIComponent(txRef)}`;
 
+  // Chapa's server-to-server callback URL.
+  // localhost works only if the callback sender can reach it.
+  // For real Chapa callbacks, configure a public HTTPS BACKEND_URL.
   const callbackUrl =
     `${backendUrl}/api/v1/payments/chapa/callback`;
 
-  const returnUrl =
-    `${frontendUrl}/payment-success?tx_ref=${encodeURIComponent(txRef)}`;
-
   const nameParts = String(name || 'EthioNutri User')
-      .trim()
-      .split(/\s+/);
+    .trim()
+    .split(/\s+/);
 
   const firstName = nameParts[0] || 'User';
 
   const lastName =
-      nameParts.slice(1).join(' ') || 'EthioNutri';
+    nameParts.slice(1).join(' ') || 'EthioNutri';
 
   const payload = {
     amount: String(amountEtb),
@@ -65,13 +72,11 @@ async function initializeChapaPayment({
 
     customization: {
       title,
-      description:
-        'Unlimted'
+      description: 'Subscription'
     },
 
     meta: {
-      payment_reason:
-        'Subscription'
+      payment_reason: 'Subscription'
     }
   };
 
@@ -122,49 +127,58 @@ async function initializeChapaPayment({
       txRef,
       raw: response.data
     };
-
-} catch (err) {
-  console.error('\n========== CHAPA INITIALIZATION ERROR ==========');
-
-  console.error('Error message:', err.message);
-  console.error('Error code:', err.code);
-
-  if (err.response) {
-    console.error('HTTP status:', err.response.status);
+  } catch (err) {
     console.error(
-      'Chapa response:',
-      JSON.stringify(err.response.data, null, 2)
+      '\n========== CHAPA INITIALIZATION ERROR =========='
     );
-    console.error('Response headers:', err.response.headers);
-  } else if (err.request) {
-    console.error('Request was sent, but Chapa gave no response.');
-    console.error('Request:', err.request);
-  } else {
-    console.error('Axios/setup error:', err);
+
+    console.error('Error message:', err.message);
+    console.error('Error code:', err.code);
+
+    if (err.response) {
+      console.error('HTTP status:', err.response.status);
+
+      console.error(
+        'Chapa response:',
+        JSON.stringify(err.response.data, null, 2)
+      );
+
+      console.error(
+        'Response headers:',
+        err.response.headers
+      );
+    } else if (err.request) {
+      console.error(
+        'Request was sent, but Chapa gave no response.'
+      );
+    } else {
+      console.error('Axios/setup error:', err);
+    }
+
+    console.error(
+      '===============================================\n'
+    );
+
+    const chapaData = err.response?.data;
+
+    let errorMessage =
+      'Failed to initialize Chapa payment';
+
+    if (typeof chapaData === 'string') {
+      errorMessage = chapaData;
+    } else if (chapaData?.message) {
+      errorMessage = chapaData.message;
+    } else if (chapaData?.error) {
+      errorMessage =
+        typeof chapaData.error === 'string'
+          ? chapaData.error
+          : JSON.stringify(chapaData.error);
+    } else if (err.message) {
+      errorMessage = err.message;
+    }
+
+    throw new Error(errorMessage);
   }
-
-  console.error('===============================================\n');
-
-  const chapaData = err.response?.data;
-
-  let errorMessage = 'Failed to initialize Chapa payment';
-
-  if (typeof chapaData === 'string') {
-    errorMessage = chapaData;
-  } else if (chapaData?.message) {
-    errorMessage = chapaData.message;
-  } else if (chapaData?.error) {
-    errorMessage =
-      typeof chapaData.error === 'string'
-        ? chapaData.error
-        : JSON.stringify(chapaData.error);
-  } else if (err.message) {
-    errorMessage = err.message;
-  }
-
-  throw new Error(errorMessage);
-}
-
 }
 
 // ============================================================
@@ -210,7 +224,6 @@ async function verifyChapaPayment(txRef) {
       status: data.status,
       data
     };
-
   } catch (err) {
     console.error(
       'CHAPA VERIFICATION FAILED:',

@@ -42,10 +42,9 @@ const TEXT_MODELS = [
   'qwen/qwen3.8-27b:free',
   'openrouter/free',
 ];
-
 const VISION_MODELS = [
-  GEMMA_MODEL,
   'google/gemma-4-31b-it:free',
+  'google/gemma-4-26b-a4b-it:free',
   'openrouter/free',
 ];
 
@@ -420,9 +419,9 @@ async function callOpenRouter({
   timeout = REQUEST_TIMEOUT,
   models = TEXT_MODELS,
   model = null,
+  requireJson = false,
 }) {
-  const apiKey =
-    getApiKey();
+  const apiKey = getApiKey();
 
   if (!apiKey) {
     throw new Error(
@@ -430,56 +429,56 @@ async function callOpenRouter({
     );
   }
 
-  const modelList =
-    uniqueModels(
-      model
-        ? [model]
-        : models
-    );
+  const modelList = uniqueModels(
+    model
+      ? [model]
+      : models
+  );
 
-  let lastError =
-    null;
-
-  for (
-    const currentModel
-    of modelList
+  if (
+    !Array.isArray(modelList) ||
+    modelList.length === 0
   ) {
+    throw new Error(
+      'No OpenRouter models configured'
+    );
+  }
+
+  let lastError = null;
+
+  for (const currentModel of modelList) {
     try {
       console.log(
         `[EthioNutri AI] Trying OpenRouter model: ${currentModel}`
       );
 
       const requestBody = {
-        model:
-          currentModel,
-
+        model: currentModel,
         messages,
-
         temperature,
-
-        max_tokens:
-          maxTokens,
+        max_tokens: maxTokens,
       };
 
-      const response =
-        await axios.post(
-          OPENROUTER_URL,
-          requestBody,
-          {
-            headers:
-              getHeaders(apiKey),
+      const response = await axios.post(
+        OPENROUTER_URL,
+        requestBody,
+        {
+          headers: getHeaders(apiKey),
+          timeout,
+        }
+      );
 
-            timeout,
-          }
-        );
+      const data =
+        response?.data;
 
       const choice =
-        response?.data
-          ?.choices?.[0];
+        data?.choices?.[0];
 
-      const content =
-        choice?.message
-          ?.content;
+      if (!choice) {
+        throw new Error(
+          `Model ${currentModel} returned no choices`
+        );
+      }
 
       const finishReason =
         choice?.finish_reason;
@@ -490,47 +489,171 @@ async function callOpenRouter({
         }`
       );
 
+      // ======================================================
+      // EXTRACT MESSAGE CONTENT
+      // ======================================================
+
+      const message =
+        choice?.message;
+
+      let content =
+        message?.content;
+
+      // ------------------------------------------------------
+      // Some providers return content as an array
+      // ------------------------------------------------------
+
+      if (Array.isArray(content)) {
+        content = content
+          .map((part) => {
+            if (
+              typeof part === 'string'
+            ) {
+              return part;
+            }
+
+            if (
+              typeof part?.text === 'string'
+            ) {
+              return part.text;
+            }
+
+            return '';
+          })
+          .join('');
+      }
+
+      // ------------------------------------------------------
+      // Normalize content
+      // ------------------------------------------------------
+
       if (
-        content ===
-          undefined ||
-        content === null ||
-        String(content)
-          .trim() === ''
+        content !== undefined &&
+        content !== null
       ) {
+        content =
+          String(content).trim();
+      }
+
+      // ======================================================
+      // EMPTY RESPONSE
+      // ======================================================
+
+      if (!content) {
+        console.error(
+          `[EthioNutri AI] ${currentModel} returned empty content`
+        );
+
+        console.error(
+          '[EthioNutri AI] Raw OpenRouter response:',
+          JSON.stringify(
+            data,
+            null,
+            2
+          )
+        );
+
         throw new Error(
           `Model ${currentModel} returned an empty response`
         );
       }
+
+      // ======================================================
+      // RAW RESPONSE DEBUG
+      // ======================================================
+
+      console.log(
+        `[EthioNutri AI] ${currentModel} response length: ${content.length}`
+      );
+
+      console.log(
+        `[EthioNutri AI] ${currentModel} raw content:`,
+        content
+      );
+
+      // ======================================================
+      // JSON VALIDATION FOR VISION
+      // ======================================================
+
+      if (requireJson) {
+
+        const extractedJson =
+          extractVisionJson(content);
+
+        if (!extractedJson) {
+
+          console.warn(
+            `[EthioNutri AI] ${currentModel} returned no JSON object. Trying next model.`
+          );
+
+          lastError =
+            new Error(
+              `Model ${currentModel} returned no JSON object`
+            );
+
+          continue;
+        }
+
+        // ----------------------------------------------------
+        // Make sure the extracted object is actually JSON
+        // ----------------------------------------------------
+
+        try {
+          JSON.parse(extractedJson);
+        } catch (jsonError) {
+
+          console.warn(
+            `[EthioNutri AI] ${currentModel} returned invalid JSON. Trying next model.`
+          );
+
+          console.warn(
+            `[EthioNutri AI] Invalid JSON: ${extractedJson}`
+          );
+
+          lastError =
+            new Error(
+              `Model ${currentModel} returned invalid JSON`
+            );
+
+          continue;
+        }
+
+        console.log(
+          `[EthioNutri AI] ${currentModel} returned valid JSON`
+        );
+      }
+
+      // ======================================================
+      // SUCCESS
+      // ======================================================
 
       console.log(
         `[EthioNutri AI] SUCCESS using model: ${currentModel}`
       );
 
       return {
-        model:
-          currentModel,
+        model: currentModel,
 
-        content:
-          String(content).trim(),
+        content,
 
         finishReason,
 
-        raw:
-          response.data,
+        raw: data,
+
+        choice,
       };
 
     } catch (error) {
-      lastError =
-        error;
+
+      lastError = error;
 
       const status =
-        error?.response
-          ?.status;
+        error?.response?.status;
 
       const errorData =
-        error?.response
-          ?.data ||
-        error?.message;
+        error?.response?.data ||
+        error?.message ||
+        error;
 
       console.error(
         `[EthioNutri AI] Model failed: ${currentModel} | HTTP ${
@@ -542,9 +665,9 @@ async function callOpenRouter({
         errorData
       );
 
-      // ------------------------------------------------------
+      // ======================================================
       // RATE LIMIT
-      // ------------------------------------------------------
+      // ======================================================
 
       if (
         status === 429
@@ -556,9 +679,9 @@ async function callOpenRouter({
         continue;
       }
 
-      // ------------------------------------------------------
-      // AUTH
-      // ------------------------------------------------------
+      // ======================================================
+      // AUTHENTICATION
+      // ======================================================
 
       if (
         status === 401 ||
@@ -571,9 +694,9 @@ async function callOpenRouter({
         continue;
       }
 
-      // ------------------------------------------------------
-      // MODEL NOT FOUND
-      // ------------------------------------------------------
+      // ======================================================
+      // MODEL UNAVAILABLE
+      // ======================================================
 
       if (
         status === 404
@@ -585,9 +708,57 @@ async function callOpenRouter({
         continue;
       }
 
-      // ------------------------------------------------------
-      // OTHER ERRORS
-      // ------------------------------------------------------
+      // ======================================================
+      // BAD REQUEST
+      // ======================================================
+
+      if (
+        status === 400
+      ) {
+        console.warn(
+          `[EthioNutri AI] ${currentModel} rejected the request. Trying next model.`
+        );
+
+        continue;
+      }
+
+      // ======================================================
+      // SERVER ERROR
+      // ======================================================
+
+      if (
+        status >= 500
+      ) {
+        console.warn(
+          `[EthioNutri AI] ${currentModel} returned server error. Trying next model.`
+        );
+
+        continue;
+      }
+
+      // ======================================================
+      // TIMEOUT / NETWORK ERROR
+      // ======================================================
+
+      if (
+        error?.code === 'ECONNABORTED' ||
+        error?.code === 'ETIMEDOUT' ||
+        error?.code === 'ECONNRESET'
+      ) {
+        console.warn(
+          `[EthioNutri AI] ${currentModel} timed out or connection failed. Trying next model.`
+        );
+
+        continue;
+      }
+
+      // ======================================================
+      // UNKNOWN ERROR
+      // ======================================================
+
+      console.warn(
+        `[EthioNutri AI] Unknown error from ${currentModel}. Trying next model.`
+      );
 
       continue;
     }
@@ -2113,12 +2284,78 @@ function cleanJsonResponse(
 // IMAGE MEAL SCANNING
 // ============================================================
 
+// ============================================================
+// IMAGE MEAL SCANNING
+// ============================================================
+
+function extractVisionJson(text) {
+  if (!text || typeof text !== 'string') {
+    return null;
+  }
+
+  const start = text.indexOf('{');
+
+  if (start === -1) {
+    return null;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const char = text[i];
+
+    // Handle escaped characters inside JSON strings
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+
+    // Enter / leave JSON string
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    // Ignore braces inside strings
+    if (inString) {
+      continue;
+    }
+
+    if (char === '{') {
+      depth++;
+    }
+
+    if (char === '}') {
+      depth--;
+
+      // Found the complete JSON object
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
+  // JSON object started but never closed
+  return null;
+}
+
+
+// ============================================================
+// ANALYZE MEAL IMAGE WITH AI
+// ============================================================
+
 async function analyzeMealImageWithAI(
   imageBase64OrUrl,
   userProfile = {}
 ) {
-  const apiKey =
-    getApiKey();
+  const apiKey = getApiKey();
 
   if (!apiKey) {
     return visionFallback();
@@ -2130,30 +2367,35 @@ async function analyzeMealImageWithAI(
 
   try {
     const imageUrl =
-      imageInputToDataUrl(
-        imageBase64OrUrl
-      );
+      imageInputToDataUrl(imageBase64OrUrl);
 
     const systemPrompt = `
 You are EthioNutri AI, an Ethiopian food recognition and nutrition assistant.
 
-Analyze the provided food image.
+Your task is to identify the food shown in the image and estimate its nutritional values.
 
-Identify the food only from visible evidence.
+IMPORTANT RULES:
 
-Do not invent certainty.
+1. Look at the image carefully.
+2. Identify only food that is visibly present.
+3. Do not invent ingredients that cannot reasonably be seen.
+4. If the exact food is uncertain, use the most likely food name.
+5. Nutritional values are estimates, not laboratory measurements.
+6. Estimate the visible edible portion in grams.
+7. If multiple foods are visible, identify the main meal as the foodName and account for the visible foods in the nutritional estimate.
+8. Consider Ethiopian foods when appropriate.
+9. Respect the user's fasting practice when making the description.
+10. Do NOT explain your reasoning.
+11. Do NOT describe your analysis process.
+12. Do NOT use markdown.
+13. Do NOT use code fences.
+14. Do NOT write any text before or after the JSON.
+15. Your response MUST contain exactly ONE JSON object.
 
-Nutritional values are estimates.
-
-Return ONLY valid JSON.
-
-Do not use markdown.
-Do not use code fences.
-
-Return:
+The JSON MUST have exactly these fields:
 
 {
-  "foodName": "",
+  "foodName": "string",
   "portionGrams": 0,
   "calories": 0,
   "proteinGrams": 0,
@@ -2161,34 +2403,61 @@ Return:
   "fatsGrams": 0,
   "ironMg": 0,
   "isVegan": false,
-  "description": ""
+  "description": "string"
 }
+
+EXAMPLE:
+
+{
+  "foodName": "Shiro with injera",
+  "portionGrams": 350,
+  "calories": 520,
+  "proteinGrams": 18,
+  "carbsGrams": 78,
+  "fatsGrams": 14,
+  "ironMg": 5.2,
+  "isVegan": true,
+  "description": "Estimated Ethiopian shiro served with injera. Portion and nutrition are approximate."
+}
+
+ANOTHER EXAMPLE:
+
+{
+  "foodName": "Cooked lentils",
+  "portionGrams": 250,
+  "calories": 290,
+  "proteinGrams": 22,
+  "carbsGrams": 50,
+  "fatsGrams": 1,
+  "ironMg": 8,
+  "isVegan": true,
+  "description": "Estimated cooked lentils based on the visible portion."
+}
+
+Return ONLY the JSON object.
 `.trim();
 
-    const result =
-      await callOpenRouter({
-        models:
-          VISION_MODELS,
+    const result = await callOpenRouter({
+      models: [
+        'google/gemma-4-31b-it:free',
+        'google/gemma-4-26b-a4b-it:free',
+        'openrouter/free',
+      ],
 
-        messages: [
-          {
-            role:
-              'system',
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt,
+        },
 
-            content:
-              systemPrompt,
-          },
+        {
+          role: 'user',
 
-          {
-            role:
-              'user',
+          content: [
+            {
+              type: 'text',
 
-            content: [
-              {
-                type:
-                  'text',
-
-                text: `
+              text: `
 Identify the food in this image.
 
 User fasting practice:
@@ -2197,51 +2466,113 @@ ${
   'Unknown'
 }
 
-Return valid JSON only.
+Return exactly one JSON object.
 `,
+            },
+
+            {
+              type: 'image_url',
+
+              image_url: {
+                url: imageUrl,
               },
+            },
+          ],
+        },
+      ],
 
-              {
-                type:
-                  'image_url',
+      temperature: 0.1,
 
-                image_url: {
-                  url:
-                    imageUrl,
-                },
-              },
-            ],
-          },
-        ],
+      maxTokens: 700,
 
-        temperature:
-          0.2,
+      timeout: VISION_TIMEOUT,
 
-        maxTokens:
-          700,
+      // IMPORTANT:
+      // callOpenRouter will reject responses
+      // that contain no complete JSON object.
+      requireJson: true,
+    });
 
-        timeout:
-          VISION_TIMEOUT,
-      });
+    // --------------------------------------------------------
+    // DEBUG RAW RESPONSE
+    // --------------------------------------------------------
+
+    console.log(
+      '[EthioNutri AI] Vision raw response:',
+      result?.content
+    );
+
+    console.log(
+      '[EthioNutri AI] Vision model:',
+      result?.model
+    );
+
+    // --------------------------------------------------------
+    // EXTRACT JSON
+    // --------------------------------------------------------
 
     const cleaned =
-      cleanJsonResponse(
-        result.content
+      extractVisionJson(
+        result?.content
       );
 
-    const parsed =
-      JSON.parse(
+    if (!cleaned) {
+      throw new Error(
+        'No JSON object found in AI response'
+      );
+    }
+
+    console.log(
+      '[EthioNutri AI] Vision cleaned JSON:',
+      cleaned
+    );
+
+    // --------------------------------------------------------
+    // PARSE JSON
+    // --------------------------------------------------------
+
+    let parsed;
+
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (parseError) {
+      console.error(
+        '[EthioNutri AI] Vision JSON parse error:',
+        parseError.message
+      );
+
+      console.error(
+        '[EthioNutri AI] Invalid JSON:',
         cleaned
       );
 
+      throw new Error(
+        'AI returned invalid JSON'
+      );
+    }
+
+    // --------------------------------------------------------
+    // VALIDATE RESULT
+    // --------------------------------------------------------
+
     if (
       !parsed ||
+      typeof parsed !== 'object' ||
       !parsed.foodName
     ) {
       throw new Error(
         'Invalid image-analysis result'
       );
     }
+
+    // --------------------------------------------------------
+    // NORMALIZE
+    // --------------------------------------------------------
+
+    parsed.foodName =
+      String(
+        parsed.foodName
+      ).trim();
 
     parsed.portionGrams =
       Number(
@@ -2274,15 +2605,16 @@ Return valid JSON only.
       ) || 0;
 
     parsed.isVegan =
-      Boolean(
-        parsed.isVegan
-      );
+      parsed.isVegan === true;
 
     parsed.description =
       String(
-        parsed.description ||
-        ''
-      );
+        parsed.description || ''
+      ).trim();
+
+    // --------------------------------------------------------
+    // SUCCESS
+    // --------------------------------------------------------
 
     console.log(
       `[EthioNutri AI] Image analysis succeeded using ${result.model}`
@@ -2291,15 +2623,18 @@ Return valid JSON only.
     return parsed;
 
   } catch (error) {
+
     console.error(
       '[EthioNutri AI] Vision analysis failed:',
       error?.response?.data ||
-        error.message
+        error?.message ||
+        error
     );
 
     return visionFallback();
   }
 }
+
 
 // ============================================================
 // VISION FALLBACK

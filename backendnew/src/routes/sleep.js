@@ -69,10 +69,15 @@ router.get('/today', authenticateToken, async (req, res) => {
         error: 'Authenticated user ID is required',
       });
     }
-
-    const today = new Date()
-      .toISOString()
-      .slice(0, 10);
+const today = new Intl.DateTimeFormat(
+  'en-CA',
+  {
+    timeZone: 'Africa/Addis_Ababa',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }
+).format(new Date());
 
     const [log] = await db
       .select()

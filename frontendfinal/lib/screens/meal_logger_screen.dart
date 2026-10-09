@@ -339,11 +339,8 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
               setDialogState(() {
                 selectedDuration = minutes;
               });
-            }
-
-            Future<void> saveSleep() async {
-              if (bedtime == null ||
-                  wakeTime == null) {
+            }            Future<void> saveSleep() async {
+              if (bedtime == null || wakeTime == null) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text(
@@ -354,50 +351,58 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                 return;
               }
 
-              final now = DateTime.now();
+              // ============================================================
+              // FIX: Calculate Date in Africa/Addis_Ababa Timezone (UTC+3)
+              // ============================================================
+              
+              // 1. Get current UTC time
+              final nowUtc = DateTime.now().toUtc();
+              
+              // 2. Add 3 hours to get Addis Ababa time
+              final nowInAddis = nowUtc.add(const Duration(hours: 3));
+              
+              // 3. Format as YYYY-MM-DD using the Addis time components
+              final sleepDateStr = _dateOnly(nowInAddis);
+
+              // ============================================================
+              // Calculate Bedtime/WakeTime Dates
+              // ============================================================
 
               DateTime bedtimeDate = DateTime(
-                now.year,
-                now.month,
-                now.day,
+                nowInAddis.year,
+                nowInAddis.month,
+                nowInAddis.day,
                 bedtime!.hour,
                 bedtime!.minute,
               );
 
               DateTime wakeTimeDate = DateTime(
-                now.year,
-                now.month,
-                now.day,
+                nowInAddis.year,
+                nowInAddis.month,
+                nowInAddis.day,
                 wakeTime!.hour,
                 wakeTime!.minute,
               );
 
+              // If wake time is earlier than bedtime, it means we woke up the next day
               if (!wakeTimeDate.isAfter(bedtimeDate)) {
-                wakeTimeDate =
-                    wakeTimeDate.add(
-                  const Duration(days: 1),
-                );
+                wakeTimeDate = wakeTimeDate.add(const Duration(days: 1));
               }
 
               final calculatedDuration =
-                  wakeTimeDate
-                      .difference(bedtimeDate)
-                      .inMinutes;
+                  wakeTimeDate.difference(bedtimeDate).inMinutes;
 
               setDialogState(() {
-                selectedDuration =
-                    calculatedDuration;
+                selectedDuration = calculatedDuration;
                 isSaving = true;
               });
 
               try {
                 await SleepService.saveSleep(
-                  sleepDate:
-                      _dateOnly(now),
-                  bedtime: bedtimeDate,
-                  wakeTime: wakeTimeDate,
-                  durationMinutes:
-                      calculatedDuration,
+                  sleepDate: sleepDateStr, 
+                  bedtime: bedtimeDate,      // Pass DateTime object directly
+                  wakeTime: wakeTimeDate,    // Pass DateTime object directly
+                  durationMinutes: calculatedDuration,
                   quality: quality,
                 );
 
@@ -408,14 +413,12 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                 await _loadData();
 
                 if (mounted) {
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(
+                  ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text(
                         '😴 Sleep logged successfully.',
                       ),
-                      backgroundColor:
-                          Color(0xFF6D4C41),
+                      backgroundColor: Color(0xFF6D4C41),
                     ),
                   );
                 }
@@ -425,14 +428,12 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                 });
 
                 if (mounted) {
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(
+                  ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
                         'Failed to log sleep: $e',
                       ),
-                      backgroundColor:
-                          const Color(0xFFDC2626),
+                      backgroundColor: const Color(0xFFDC2626),
                     ),
                   );
                 }
@@ -3495,29 +3496,13 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
   // ============================================================
   // HELPERS
   // ============================================================
-
   String _dateOnly(DateTime date) {
-    final year =
-        date.year.toString().padLeft(
-              4,
-              '0',
-            );
-
-    final month =
-        date.month.toString().padLeft(
-              2,
-              '0',
-            );
-
-    final day =
-        date.day.toString().padLeft(
-              2,
-              '0',
-            );
-
+    // Ensure we are formatting the date components correctly
+    final year = date.year.toString().padLeft(4, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
     return '$year-$month-$day';
   }
-
   int _calculateTimeDifference(
     TimeOfDay start,
     TimeOfDay end,

@@ -218,7 +218,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         ),
                         const SizedBox(width: 10),
                         const Text(
-                          'EthioNutri AI',
+                          'EthioWellness AI',
                           style: TextStyle(
                             fontSize: 19,
                             fontWeight: FontWeight.bold,

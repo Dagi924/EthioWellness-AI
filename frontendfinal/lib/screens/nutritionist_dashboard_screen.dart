@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 
 import 'nutritionist_patient_chat_screen.dart';
@@ -79,33 +80,29 @@ class _NutritionistDashboardScreenState
 
       if (!mounted) return;
 
-      if (response is Map) {
-        _dashboardData = Map<String, dynamic>.from(response);
-
-        final patients =
-            response['patients'];
-
-        final appointments =
-            response['upcomingAppointments'];
-
-        final dietitian =
-            response['dietitian'];
-
-        _patients = patients is List
-            ? List<dynamic>.from(patients)
-            : [];
-
-        _appointments = appointments is List
-            ? List<dynamic>.from(appointments)
-            : [];
-
-        _dietitian = dietitian is Map
-            ? Map<String, dynamic>.from(dietitian)
-            : {};
-
-        _highRiskCount =
-            _toInt(response['highRiskCount']);
+      if (response is! Map) {
+        throw Exception('Invalid dashboard response.');
       }
+
+      _dashboardData = Map<String, dynamic>.from(response);
+
+      final patients = response['patients'];
+      final appointments = response['upcomingAppointments'];
+      final dietitian = response['dietitian'];
+
+      _patients = patients is List
+          ? List<dynamic>.from(patients)
+          : [];
+
+      _appointments = appointments is List
+          ? List<dynamic>.from(appointments)
+          : [];
+
+      _dietitian = dietitian is Map
+          ? Map<String, dynamic>.from(dietitian)
+          : {};
+
+      _highRiskCount = _toInt(response['highRiskCount']);
 
       setState(() {
         _loading = false;
@@ -127,27 +124,17 @@ class _NutritionistDashboardScreenState
   Future<void> _openVideoConsultation(
     Map<String, dynamic> appointment,
   ) async {
-    final appointmentId =
-        appointment['id']?.toString();
+    final appointmentId = appointment['id']?.toString();
 
-    if (appointmentId == null ||
-        appointmentId.isEmpty) {
-      _showSnackBar(
-        'Appointment ID is missing.',
-        isError: true,
-      );
+    if (appointmentId == null || appointmentId.isEmpty) {
+      _showSnackBar('Appointment ID is missing.', isError: true);
       return;
     }
 
-    final scheduledAt = _parseDate(
-      appointment['scheduledAt'],
-    );
+    final scheduledAt = _parseDate(appointment['scheduledAt']);
 
     if (scheduledAt == null) {
-      _showSnackBar(
-        'Appointment time is invalid.',
-        isError: true,
-      );
+      _showSnackBar('Appointment time is invalid.', isError: true);
       return;
     }
 
@@ -157,23 +144,23 @@ class _NutritionistDashboardScreenState
           appointment['endTime'],
     );
 
+    var loadingDialogOpen = false;
+
     try {
       _showLoadingDialog();
+      loadingDialogOpen = true;
 
       final session =
-          await AppointmentService.getVideoSession(
-        appointmentId,
-      );
+          await AppointmentService.getVideoSession(appointmentId);
 
       if (!mounted) return;
 
-      Navigator.of(context).pop();
+      Navigator.of(context, rootNavigator: true).pop();
+      loadingDialogOpen = false;
 
-      final roomName =
-          session['roomName']?.toString();
+      final roomName = session['roomName']?.toString();
 
-      if (roomName == null ||
-          roomName.isEmpty) {
+      if (roomName == null || roomName.isEmpty) {
         _showSnackBar(
           'Video room could not be created.',
           isError: true,
@@ -181,22 +168,24 @@ class _NutritionistDashboardScreenState
         return;
       }
 
+      final sessionPatient = session['patient'];
       final participantName =
           appointment['userName']?.toString() ??
-              session['patient']?['name']
-                  ?.toString() ??
+              (sessionPatient is Map
+                  ? sessionPatient['name']?.toString()
+                  : null) ??
               'Patient';
 
       final participantEmail =
           appointment['userEmail']?.toString() ??
-              session['patient']?['email']
-                  ?.toString();
+              (sessionPatient is Map
+                  ? sessionPatient['email']?.toString()
+                  : null);
 
-      Navigator.push(
+      await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) =>
-              NutritionistVideoCallScreen(
+          builder: (_) => NutritionistVideoCallScreen(
             roomName: roomName,
             participantName: participantName,
             participantEmail: participantEmail,
@@ -209,7 +198,9 @@ class _NutritionistDashboardScreenState
     } catch (e) {
       if (!mounted) return;
 
-      Navigator.of(context).pop();
+      if (loadingDialogOpen) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
 
       _showSnackBar(
         'Unable to open consultation: ${_cleanError(e)}',
@@ -229,12 +220,8 @@ class _NutritionistDashboardScreenState
         patient['id']?.toString() ??
             patient['userId']?.toString();
 
-    if (patientId == null ||
-        patientId.isEmpty) {
-      _showSnackBar(
-        'Patient ID is missing.',
-        isError: true,
-      );
+    if (patientId == null || patientId.isEmpty) {
+      _showSnackBar('Patient ID is missing.', isError: true);
       return;
     }
 
@@ -243,11 +230,10 @@ class _NutritionistDashboardScreenState
             patient['userName']?.toString() ??
             'Patient';
 
-    Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            NutritionistPatientChatScreen(
+        builder: (_) => NutritionistPatientChatScreen(
           patientId: patientId,
           patientName: patientName,
         ),
@@ -266,60 +252,42 @@ class _NutritionistDashboardScreenState
         patient['id']?.toString() ??
             patient['userId']?.toString();
 
-    if (patientId == null ||
-        patientId.isEmpty) {
-      _showSnackBar(
-        'Patient ID is missing.',
-        isError: true,
-      );
+    if (patientId == null || patientId.isEmpty) {
+      _showSnackBar('Patient ID is missing.', isError: true);
       return;
     }
 
-    final controller =
-        TextEditingController();
+    final controller = TextEditingController();
 
     final message = await showDialog<String>(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
-          title: const Text(
-            'Send Message',
-          ),
+          title: const Text('Send Message'),
           content: TextField(
             controller: controller,
+            autofocus: true,
             maxLines: 4,
-            decoration:
-                const InputDecoration(
-              hintText:
-                  'Type your message...',
-              border:
-                  OutlineInputBorder(),
+            maxLength: 5000,
+            decoration: const InputDecoration(
+              hintText: 'Type your message...',
+              border: OutlineInputBorder(),
             ),
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: const Text(
-                'Cancel',
-              ),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
             ),
             ElevatedButton(
               onPressed: () {
-                final text =
-                    controller.text.trim();
+                final text = controller.text.trim();
 
                 if (text.isNotEmpty) {
-                  Navigator.pop(
-                    context,
-                    text,
-                  );
+                  Navigator.pop(dialogContext, text);
                 }
               },
-              child: const Text(
-                'Send',
-              ),
+              child: const Text('Send'),
             ),
           ],
         );
@@ -328,29 +296,27 @@ class _NutritionistDashboardScreenState
 
     controller.dispose();
 
-    if (message == null ||
-        message.trim().isEmpty) {
+    if (message == null || message.trim().isEmpty) {
       return;
     }
 
-    try {
-      setState(() {
-        _sendingMessage = true;
-      });
+    if (!mounted) return;
 
+    setState(() {
+      _sendingMessage = true;
+    });
+
+    try {
+      // Matches the nutritionist-specific backend POST route.
       await ApiClient.post(
-        '/supervision/messages',
-        {
-          'receiverId': patientId,
-          'message': message.trim(),
-        },
+        '/supervision/dietitian/patients/$patientId/messages',
+        {'message': message.trim()},
       );
 
       if (!mounted) return;
 
-      _showSnackBar(
-        'Message sent successfully.',
-      );
+      _showSnackBar('Message sent successfully.');
+      await _loadDashboard();
     } catch (e) {
       if (!mounted) return;
 
@@ -387,48 +353,55 @@ class _NutritionistDashboardScreenState
   }
 
   // ============================================================
-  // HELPERS
+  // GENERAL HELPERS
   // ============================================================
 
   DateTime? _parseDate(dynamic value) {
     if (value == null) return null;
 
-    if (value is DateTime) {
-      return value.toLocal();
-    }
+    if (value is DateTime) return value.toLocal();
 
-    final parsed =
-        DateTime.tryParse(value.toString());
-
-    return parsed?.toLocal();
+    return DateTime.tryParse(value.toString())?.toLocal();
   }
 
   int _toInt(dynamic value) {
     if (value is int) return value;
 
-    return int.tryParse(
-          value?.toString() ?? '',
-        ) ??
-        0;
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  double? _toDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+
+    return double.tryParse(value?.toString() ?? '');
   }
 
   String _cleanError(dynamic error) {
-    String message = error.toString();
+    var message = error.toString();
 
     if (message.startsWith('Exception:')) {
-      message =
-          message.substring(10).trim();
+      message = message.substring(10).trim();
     }
 
     return message;
   }
 
+  String _displayValue(dynamic value, {String fallback = 'Not recorded'}) {
+    if (value == null) return fallback;
+
+    final text = value.toString().trim();
+
+    if (text.isEmpty || text.toLowerCase() == 'null') {
+      return fallback;
+    }
+
+    return text;
+  }
+
   String _formatDate(dynamic value) {
     final date = _parseDate(value);
 
-    if (date == null) {
-      return '-';
-    }
+    if (date == null) return '-';
 
     final hour = date.hour == 0
         ? 12
@@ -436,51 +409,99 @@ class _NutritionistDashboardScreenState
             ? date.hour - 12
             : date.hour;
 
-    final minute =
-        date.minute.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+    final period = date.hour >= 12 ? 'PM' : 'AM';
 
-    final period =
-        date.hour >= 12 ? 'PM' : 'AM';
-
-    return '${date.day}/${date.month}/${date.year} '
-        '$hour:$minute $period';
+    return '${date.day}/${date.month}/${date.year} $hour:$minute $period';
   }
 
-  String _formatAppointmentStatus(
-    dynamic status,
-  ) {
-    if (status == null) return 'UNKNOWN';
+  String _formatLogDate(dynamic value) {
+    final date = _parseDate(value);
 
-    final value =
-        status.toString().trim();
+    if (date == null) return 'Date not recorded';
 
-    if (value.isEmpty) {
-      return 'UNKNOWN';
-    }
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+
+    return '$day/$month/${date.year}';
+  }
+
+  String _formatSleepDuration(dynamic value) {
+    final minutes = _toInt(value);
+
+    if (minutes <= 0) return 'Not recorded';
+
+    final hours = minutes ~/ 60;
+    final remainingMinutes = minutes % 60;
+
+    if (hours == 0) return '${remainingMinutes}m';
+
+    if (remainingMinutes == 0) return '${hours}h';
+
+    return '${hours}h ${remainingMinutes}m';
+  }
+
+  String _formatClockTime(dynamic value) {
+    if (value == null) return 'Not recorded';
+
+    final raw = value.toString().trim();
+
+    if (raw.isEmpty) return 'Not recorded';
+
+    final match = RegExp(
+      r'^(\d{1,2}):(\d{2})',
+    ).firstMatch(raw);
+
+    if (match == null) return raw;
+
+    final hour = int.tryParse(match.group(1)!) ?? 0;
+    final minute = match.group(2)!;
+
+    if (hour < 0 || hour > 23) return raw;
+
+    final displayHour = hour == 0
+        ? 12
+        : hour > 12
+            ? hour - 12
+            : hour;
+
+    final period = hour >= 12 ? 'PM' : 'AM';
+
+    return '$displayHour:$minute $period';
+  }
+
+  String _formatAppointmentStatus(dynamic status) {
+    final value = status?.toString().trim();
+
+    if (value == null || value.isEmpty) return 'UNKNOWN';
 
     return value.toUpperCase();
   }
 
   Color _statusColor(dynamic status) {
-    final value =
-        status?.toString().toLowerCase();
-
-    switch (value) {
+    switch (status?.toString().toLowerCase()) {
       case 'confirmed':
         return Colors.green;
-
       case 'completed':
         return Colors.blue;
-
       case 'cancelled':
       case 'canceled':
         return Colors.red;
-
       case 'pending':
         return Colors.orange;
-
       default:
         return textMuted;
+    }
+  }
+
+  Color _riskColor(dynamic risk) {
+    switch (risk?.toString().toLowerCase()) {
+      case 'critical risk':
+        return Colors.red.shade800;
+      case 'high risk':
+        return Colors.deepOrange;
+      default:
+        return Colors.green.shade700;
     }
   }
 
@@ -495,8 +516,7 @@ class _NutritionistDashboardScreenState
       ..showSnackBar(
         SnackBar(
           content: Text(message),
-          backgroundColor:
-              isError ? Colors.red : darkBrown,
+          backgroundColor: isError ? Colors.red : darkBrown,
         ),
       );
   }
@@ -505,12 +525,19 @@ class _NutritionistDashboardScreenState
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) {
-        return const Center(
-          child: CircularProgressIndicator(),
-        );
-      },
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(),
+      ),
     );
+  }
+
+  List<Map<String, dynamic>> _mapList(dynamic value) {
+    if (value is! List) return [];
+
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
   }
 
   // ============================================================
@@ -527,47 +554,32 @@ class _NutritionistDashboardScreenState
         elevation: 0,
         title: const Text(
           'Nutritionist Dashboard',
-          style: TextStyle(
-            fontWeight: FontWeight.w800,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w800),
         ),
         actions: [
           IconButton(
             tooltip: 'Refresh',
-            onPressed: _loading
-                ? null
-                : _loadDashboard,
-            icon: const Icon(
-              Icons.refresh_rounded,
-            ),
+            onPressed: _loading ? null : _loadDashboard,
+            icon: const Icon(Icons.refresh_rounded),
           ),
           IconButton(
             tooltip: 'Logout',
             onPressed: _logout,
-            icon: const Icon(
-              Icons.logout_rounded,
-            ),
+            icon: const Icon(Icons.logout_rounded),
           ),
         ],
       ),
       body: _loading
-          ? const Center(
-              child:
-                  CircularProgressIndicator(),
-            )
+          ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? _buildErrorState()
               : Column(
                   children: [
                     _buildHeader(),
-
                     _buildTabs(),
-
                     Expanded(
-                      child:
-                          TabBarView(
-                        controller:
-                            _tabController,
+                      child: TabBarView(
+                        controller: _tabController,
                         children: [
                           _buildOverviewTab(),
                           _buildPatientsTab(),
@@ -590,35 +602,25 @@ class _NutritionistDashboardScreenState
             _dietitian['userName']?.toString() ??
             'Nutritionist';
 
-    final email =
-        _dietitian['email']?.toString() ?? '';
+    final email = _dietitian['email']?.toString() ?? '';
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(
-        20,
-        20,
-        20,
-        22,
-      ),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 22),
       decoration: const BoxDecoration(
         color: darkBrown,
         borderRadius: BorderRadius.only(
-          bottomLeft:
-              Radius.circular(24),
-          bottomRight:
-              Radius.circular(24),
+          bottomLeft: Radius.circular(24),
+          bottomRight: Radius.circular(24),
         ),
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'Welcome back,',
             style: TextStyle(
-              color: Colors.white
-                  .withOpacity(.75),
+              color: Colors.white.withOpacity(.75),
               fontSize: 13,
             ),
           ),
@@ -636,8 +638,7 @@ class _NutritionistDashboardScreenState
             Text(
               email,
               style: TextStyle(
-                color: Colors.white
-                    .withOpacity(.75),
+                color: Colors.white.withOpacity(.75),
                 fontSize: 12,
               ),
             ),
@@ -653,48 +654,30 @@ class _NutritionistDashboardScreenState
 
   Widget _buildTabs() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(
-        16,
-        16,
-        16,
-        10,
-      ),
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 10),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(14),
-        border: Border.all(
-          color: borderColor,
-        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor),
       ),
       child: TabBar(
         controller: _tabController,
         labelColor: darkBrown,
-        unselectedLabelColor:
-            textMuted,
+        unselectedLabelColor: textMuted,
         indicatorColor: darkBrown,
         indicatorWeight: 3,
         tabs: const [
           Tab(
             text: 'Overview',
-            icon: Icon(
-              Icons.dashboard_rounded,
-              size: 18,
-            ),
+            icon: Icon(Icons.dashboard_rounded, size: 18),
           ),
           Tab(
             text: 'Patients',
-            icon: Icon(
-              Icons.people_alt_rounded,
-              size: 18,
-            ),
+            icon: Icon(Icons.people_alt_rounded, size: 18),
           ),
           Tab(
             text: 'Appointments',
-            icon: Icon(
-              Icons.calendar_month_rounded,
-              size: 18,
-            ),
+            icon: Icon(Icons.calendar_month_rounded, size: 18),
           ),
         ],
       ),
@@ -716,53 +699,41 @@ class _NutritionistDashboardScreenState
               Expanded(
                 child: _buildStatCard(
                   title: 'Patients',
-                  value:
-                      _patients.length.toString(),
-                  icon:
-                      Icons.people_alt_rounded,
+                  value: _patients.length.toString(),
+                  icon: Icons.people_alt_rounded,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _buildStatCard(
                   title: 'Appointments',
-                  value:
-                      _appointments.length.toString(),
-                  icon:
-                      Icons.calendar_month_rounded,
+                  value: _appointments.length.toString(),
+                  icon: Icons.calendar_month_rounded,
                 ),
               ),
             ],
           ),
-
           const SizedBox(height: 12),
-
           Row(
             children: [
               Expanded(
                 child: _buildStatCard(
                   title: 'High Risk',
-                  value:
-                      _highRiskCount.toString(),
-                  icon:
-                      Icons.warning_amber_rounded,
+                  value: _highRiskCount.toString(),
+                  icon: Icons.warning_amber_rounded,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _buildStatCard(
                   title: 'Upcoming',
-                  value:
-                      _upcomingCount().toString(),
-                  icon:
-                      Icons.video_call_rounded,
+                  value: _upcomingCount().toString(),
+                  icon: Icons.video_call_rounded,
                 ),
               ),
             ],
           ),
-
           const SizedBox(height: 24),
-
           const Text(
             'Upcoming Consultations',
             style: TextStyle(
@@ -771,27 +742,18 @@ class _NutritionistDashboardScreenState
               color: textDark,
             ),
           ),
-
           const SizedBox(height: 12),
-
           if (_appointments.isEmpty)
             _buildEmptyCard(
-              icon:
-                  Icons.video_call_outlined,
-              title:
-                  'No upcoming consultations',
+              icon: Icons.video_call_outlined,
+              title: 'No upcoming consultations',
               subtitle:
                   'Clinical video consultations and dietary review sessions will appear here.',
             )
           else
-            ..._appointments
-                .take(3)
-                .map(
-                  (appointment) =>
-                      _buildAppointmentCard(
-                    Map<String, dynamic>.from(
-                      appointment as Map,
-                    ),
+            ..._appointments.take(3).map(
+                  (appointment) => _buildAppointmentCard(
+                    Map<String, dynamic>.from(appointment as Map),
                   ),
                 ),
         ],
@@ -805,11 +767,9 @@ class _NutritionistDashboardScreenState
     return _appointments.where((item) {
       if (item is! Map) return false;
 
-      final date =
-          _parseDate(item['scheduledAt']);
+      final date = _parseDate(item['scheduledAt']);
 
-      return date != null &&
-          date.isAfter(now);
+      return date != null && date.isAfter(now);
     }).length;
   }
 
@@ -825,30 +785,21 @@ class _NutritionistDashboardScreenState
               children: [
                 const SizedBox(height: 100),
                 _buildEmptyCard(
-                  icon:
-                      Icons.people_outline_rounded,
-                  title:
-                      'No patients found',
-                  subtitle:
-                      'Assigned patients will appear here.',
+                  icon: Icons.people_outline_rounded,
+                  title: 'No patients found',
+                  subtitle: 'Patients will appear here when available.',
                 ),
               ],
             )
           : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: _patients.length,
-              itemBuilder: (
-                context,
-                index,
-              ) {
-                final patient =
-                    Map<String, dynamic>.from(
+              itemBuilder: (context, index) {
+                final patient = Map<String, dynamic>.from(
                   _patients[index] as Map,
                 );
 
-                return _buildPatientCard(
-                  patient,
-                );
+                return _buildPatientCard(patient);
               },
             ),
     );
@@ -858,9 +809,7 @@ class _NutritionistDashboardScreenState
   // PATIENT CARD
   // ============================================================
 
-  Widget _buildPatientCard(
-    Map<String, dynamic> patient,
-  ) {
+  Widget _buildPatientCard(Map<String, dynamic> patient) {
     final name =
         patient['name']?.toString() ??
             patient['userName']?.toString() ??
@@ -876,29 +825,34 @@ class _NutritionistDashboardScreenState
             patient['userId']?.toString() ??
             '-';
 
+    final riskLevel = _displayValue(
+      patient['riskLevel'],
+      fallback: 'Normal',
+    );
+
+    final conditions = patient['healthConditions'] is List
+        ? (patient['healthConditions'] as List).join(', ')
+        : _displayValue(
+            patient['healthConditions'],
+            fallback: 'None recorded',
+          );
+
     return Container(
-      margin: const EdgeInsets.only(
-        bottom: 12,
-      ),
+      margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(16),
-        border: Border.all(
-          color: borderColor,
-        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               CircleAvatar(
                 radius: 24,
-                backgroundColor:
-                    lightBrown.withOpacity(.12),
+                backgroundColor: lightBrown.withOpacity(.12),
                 child: const Icon(
                   Icons.person_rounded,
                   color: darkBrown,
@@ -907,29 +861,22 @@ class _NutritionistDashboardScreenState
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       name,
-                      style:
-                          const TextStyle(
+                      style: const TextStyle(
                         color: textDark,
                         fontSize: 16,
-                        fontWeight:
-                            FontWeight.w800,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                     if (email.isNotEmpty)
                       Padding(
-                        padding:
-                            const EdgeInsets.only(
-                          top: 3,
-                        ),
+                        padding: const EdgeInsets.only(top: 3),
                         child: Text(
                           email,
-                          style:
-                              const TextStyle(
+                          style: const TextStyle(
                             color: textMuted,
                             fontSize: 12,
                           ),
@@ -940,9 +887,22 @@ class _NutritionistDashboardScreenState
               ),
             ],
           ),
-
-          const SizedBox(height: 14),
-
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildPill(
+                label: riskLevel,
+                color: _riskColor(riskLevel),
+              ),
+              _buildPill(
+                label: 'Fasting: ${_displayValue(patient['fastingPractice'], fallback: 'Unknown')}',
+                color: brown,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
           Text(
             'Patient ID: $patientId',
             style: const TextStyle(
@@ -951,42 +911,45 @@ class _NutritionistDashboardScreenState
               fontFamily: 'monospace',
             ),
           ),
+          const SizedBox(height: 8),
+          _buildPatientDetailLine(
+            'Health conditions',
+            conditions,
+          ),
+          _buildPatientDetailLine(
+            'Goal',
+            _displayValue(patient['goal']),
+          ),
+          _buildPatientDetailLine(
+            'Age',
+            patient['age'] == null
+                ? 'Not recorded'
+                : patient['age'].toString(),
+          ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
+
+          // Sleep and mood information from the dashboard API.
+          _buildWellnessSection(patient),
+
+          const SizedBox(height: 14),
 
           Row(
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {
-                    _openPatientChat(
-                      patient,
-                    );
-                  },
+                  onPressed: () => _openPatientChat(patient),
                   icon: const Icon(
                     Icons.chat_bubble_outline,
                     size: 17,
                   ),
-                  label: const Text(
-                    'Open Chat',
-                  ),
-                  style:
-                      OutlinedButton.styleFrom(
-                    foregroundColor:
-                        darkBrown,
-                    side: const BorderSide(
-                      color: darkBrown,
-                    ),
-                    padding:
-                        const EdgeInsets.symmetric(
-                      vertical: 12,
-                    ),
-                    shape:
-                        RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(
-                        11,
-                      ),
+                  label: const Text('Open Chat'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: darkBrown,
+                    side: const BorderSide(color: darkBrown),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(11),
                     ),
                   ),
                 ),
@@ -994,38 +957,21 @@ class _NutritionistDashboardScreenState
               const SizedBox(width: 10),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed:
-                      _sendingMessage
-                          ? null
-                          : () {
-                              _sendMessage(
-                                patient,
-                              );
-                            },
+                  onPressed: _sendingMessage
+                      ? null
+                      : () => _sendMessage(patient),
                   icon: const Icon(
                     Icons.send_rounded,
                     size: 17,
                   ),
-                  label: const Text(
-                    'Direct Msg',
-                  ),
-                  style:
-                      ElevatedButton.styleFrom(
-                    backgroundColor:
-                        darkBrown,
-                    foregroundColor:
-                        Colors.white,
+                  label: const Text('Direct Msg'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: darkBrown,
+                    foregroundColor: Colors.white,
                     elevation: 0,
-                    padding:
-                        const EdgeInsets.symmetric(
-                      vertical: 12,
-                    ),
-                    shape:
-                        RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(
-                        11,
-                      ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(11),
                     ),
                   ),
                 ),
@@ -1033,6 +979,430 @@ class _NutritionistDashboardScreenState
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // PATIENT WELLNESS SECTION: SLEEP + MOOD
+  // ============================================================
+
+  Widget _buildWellnessSection(Map<String, dynamic> patient) {
+    final latestSleep = patient['latestSleep'] is Map
+        ? Map<String, dynamic>.from(patient['latestSleep'] as Map)
+        : null;
+
+    final latestMood = patient['latestMood'] is Map
+        ? Map<String, dynamic>.from(patient['latestMood'] as Map)
+        : null;
+
+    final sleepHistory = _mapList(patient['recentSleepLogs']);
+    final moodHistory = _mapList(patient['recentMoodLogs']);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                Icons.health_and_safety_rounded,
+                color: darkBrown,
+                size: 19,
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Sleep & Mood Tracking',
+                  style: TextStyle(
+                    color: textDark,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          _buildSleepSummary(latestSleep),
+          const SizedBox(height: 10),
+          _buildMoodSummary(latestMood),
+
+          if (sleepHistory.length > 1 || moodHistory.length > 1) ...[
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: borderColor),
+            const SizedBox(height: 10),
+            const Text(
+              'Recent history',
+              style: TextStyle(
+                color: textDark,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            if (sleepHistory.length > 1)
+              _buildHistoryList(
+                title: 'Sleep',
+                icon: Icons.nightlight_round,
+                records: sleepHistory,
+                isSleep: true,
+              ),
+
+            if (moodHistory.length > 1)
+              _buildHistoryList(
+                title: 'Mood',
+                icon: Icons.mood_rounded,
+                records: moodHistory,
+                isSleep: false,
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSleepSummary(Map<String, dynamic>? sleep) {
+    if (sleep == null) {
+      return _buildNoRecord(
+        icon: Icons.nightlight_outlined,
+        title: 'Sleep',
+        message: 'No sleep records available.',
+      );
+    }
+
+    final duration = _formatSleepDuration(sleep['durationMinutes']);
+    final quality = _displayValue(sleep['quality']);
+    final bedtime = _formatClockTime(sleep['bedtime']);
+    final wakeTime = _formatClockTime(sleep['wakeTime']);
+    final date = _formatLogDate(sleep['sleepDate']);
+    final notes = _displayValue(sleep['notes'], fallback: '');
+
+    return _buildWellnessCard(
+      icon: Icons.nightlight_round,
+      title: 'Latest sleep',
+      accent: Colors.indigo,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            duration,
+            style: const TextStyle(
+              color: textDark,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'Date: $date',
+            style: const TextStyle(color: textMuted, fontSize: 11),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Bedtime: $bedtime  •  Wake: $wakeTime',
+            style: const TextStyle(color: textDark, fontSize: 12),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Quality: $quality',
+            style: const TextStyle(color: textDark, fontSize: 12),
+          ),
+          if (notes.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            Text(
+              'Notes: $notes',
+              style: const TextStyle(
+                color: textMuted,
+                fontSize: 11,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMoodSummary(Map<String, dynamic>? mood) {
+    if (mood == null) {
+      return _buildNoRecord(
+        icon: Icons.mood_outlined,
+        title: 'Mood',
+        message: 'No mood records available.',
+      );
+    }
+
+    final moodName = _displayValue(mood['mood']);
+    final moodScore = _toDouble(mood['moodScore']);
+    final date = _formatLogDate(mood['loggedAt']);
+    final note = _displayValue(mood['note'], fallback: '');
+
+    return _buildWellnessCard(
+      icon: Icons.mood_rounded,
+      title: 'Latest mood',
+      accent: Colors.deepOrange,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            moodName,
+            style: const TextStyle(
+              color: textDark,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'Logged: $date',
+            style: const TextStyle(color: textMuted, fontSize: 11),
+          ),
+          if (moodScore != null) ...[
+            const SizedBox(height: 5),
+            Text(
+              'Mood score: ${moodScore % 1 == 0 ? moodScore.toInt() : moodScore}',
+              style: const TextStyle(color: textDark, fontSize: 12),
+            ),
+          ],
+          if (note.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            Text(
+              'Note: $note',
+              style: const TextStyle(
+                color: textMuted,
+                fontSize: 11,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWellnessCard({
+    required IconData icon,
+    required String title,
+    required Color accent,
+    required Widget child,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: accent.withOpacity(.10),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: accent, size: 19),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: textMuted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                child,
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNoRecord({
+    required IconData icon,
+    required String title,
+    required String message,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: textMuted, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: textDark,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  message,
+                  style: const TextStyle(
+                    color: textMuted,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryList({
+    required String title,
+    required IconData icon,
+    required List<Map<String, dynamic>> records,
+    required bool isSleep,
+  }) {
+    // The first entry is displayed in the latest-record summary.
+    final olderRecords = records.skip(1).toList();
+
+    if (olderRecords.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: textMuted, size: 15),
+              const SizedBox(width: 6),
+              Text(
+                '$title history',
+                style: const TextStyle(
+                  color: textDark,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          ...olderRecords.map((record) {
+            final date = _formatLogDate(
+              isSleep ? record['sleepDate'] : record['loggedAt'],
+            );
+
+            final summary = isSleep
+                ? '${_formatSleepDuration(record['durationMinutes'])} • '
+                    'Quality: ${_displayValue(record['quality'])}'
+                : '${_displayValue(record['mood'])}'
+                    '${record['moodScore'] != null ? ' • Score: ${_displayValue(record['moodScore'])}' : ''}';
+
+            return Padding(
+              padding: const EdgeInsets.only(top: 5),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '• ',
+                    style: TextStyle(color: textMuted, fontSize: 11),
+                  ),
+                  Expanded(
+                    child: Text(
+                      '$date — $summary',
+                      style: const TextStyle(
+                        color: textMuted,
+                        fontSize: 11,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPatientDetailLine(String title, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 112,
+            child: Text(
+              title,
+              style: const TextStyle(
+                color: textMuted,
+                fontSize: 11,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: textDark,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPill({
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(.10),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
@@ -1049,32 +1419,21 @@ class _NutritionistDashboardScreenState
               children: [
                 const SizedBox(height: 100),
                 _buildEmptyCard(
-                  icon:
-                      Icons.calendar_today_outlined,
-                  title:
-                      'No appointments',
-                  subtitle:
-                      'Scheduled consultation sessions will appear here.',
+                  icon: Icons.calendar_today_outlined,
+                  title: 'No appointments',
+                  subtitle: 'Scheduled consultation sessions will appear here.',
                 ),
               ],
             )
           : ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount:
-                  _appointments.length,
-              itemBuilder: (
-                context,
-                index,
-              ) {
-                final appointment =
-                    Map<String, dynamic>.from(
-                  _appointments[index]
-                      as Map,
+              itemCount: _appointments.length,
+              itemBuilder: (context, index) {
+                final appointment = Map<String, dynamic>.from(
+                  _appointments[index] as Map,
                 );
 
-                return _buildAppointmentCard(
-                  appointment,
-                );
+                return _buildAppointmentCard(appointment);
               },
             ),
     );
@@ -1084,82 +1443,42 @@ class _NutritionistDashboardScreenState
   // APPOINTMENT CARD
   // ============================================================
 
-  Widget _buildAppointmentCard(
-    Map<String, dynamic> appointment,
-  ) {
-    final status =
-        appointment['status'];
+  Widget _buildAppointmentCard(Map<String, dynamic> appointment) {
+    final status = appointment['status'];
+    final statusText = _formatAppointmentStatus(status);
+    final statusColor = _statusColor(status);
 
-    final statusText =
-        _formatAppointmentStatus(
-      status,
-    );
-
-    final statusColor =
-        _statusColor(status);
-
-    final patientName =
-        appointment['userName']
-                ?.toString() ??
-            'Patient';
-
-    final patientEmail =
-        appointment['userEmail']
-                ?.toString() ??
-            '';
-
-    final scheduledAt =
-        appointment['scheduledAt'];
-
-    final notes =
-        appointment['notes']?.toString() ??
-            '';
-
-    final appointmentId =
-        appointment['id']?.toString() ??
-            '-';
+    final patientName = appointment['userName']?.toString() ?? 'Patient';
+    final patientEmail = appointment['userEmail']?.toString() ?? '';
+    final scheduledAt = appointment['scheduledAt'];
+    final notes = appointment['notes']?.toString() ?? '';
+    final appointmentId = appointment['id']?.toString() ?? '-';
 
     return Container(
-      margin: const EdgeInsets.only(
-        bottom: 14,
-      ),
+      margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(16),
-        border: Border.all(
-          color: borderColor,
-        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
         boxShadow: [
           BoxShadow(
             blurRadius: 12,
             offset: const Offset(0, 4),
-            color:
-                Colors.black.withOpacity(.035),
+            color: Colors.black.withOpacity(.035),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ------------------------------------------------------
-          // TOP ROW
-          // ------------------------------------------------------
-
           Row(
             children: [
               Container(
-                padding:
-                    const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color:
-                      darkBrown.withOpacity(.08),
-                  borderRadius:
-                      BorderRadius.circular(
-                    12,
-                  ),
+                  color: darkBrown.withOpacity(.08),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.calendar_month_rounded,
@@ -1167,34 +1486,25 @@ class _NutritionistDashboardScreenState
                   size: 23,
                 ),
               ),
-
               const SizedBox(width: 12),
-
               Expanded(
                 child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       patientName,
-                      style:
-                          const TextStyle(
+                      style: const TextStyle(
                         color: textDark,
                         fontSize: 16,
-                        fontWeight:
-                            FontWeight.w800,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                     if (patientEmail.isNotEmpty)
                       Padding(
-                        padding:
-                            const EdgeInsets.only(
-                          top: 3,
-                        ),
+                        padding: const EdgeInsets.only(top: 3),
                         child: Text(
                           patientEmail,
-                          style:
-                              const TextStyle(
+                          style: const TextStyle(
                             color: textMuted,
                             fontSize: 11.5,
                           ),
@@ -1203,48 +1513,33 @@ class _NutritionistDashboardScreenState
                   ],
                 ),
               ),
-
               Container(
-                padding:
-                    const EdgeInsets.symmetric(
+                padding: const EdgeInsets.symmetric(
                   horizontal: 9,
                   vertical: 5,
                 ),
                 decoration: BoxDecoration(
-                  color: statusColor
-                      .withOpacity(.10),
-                  borderRadius:
-                      BorderRadius.circular(
-                    20,
-                  ),
+                  color: statusColor.withOpacity(.10),
+                  borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
                   statusText,
                   style: TextStyle(
                     color: statusColor,
                     fontSize: 9.5,
-                    fontWeight:
-                        FontWeight.w800,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
             ],
           ),
-
           const SizedBox(height: 16),
-
-          // ------------------------------------------------------
-          // SCHEDULED TIME
-          // ------------------------------------------------------
-
           Container(
             width: double.infinity,
-            padding:
-                const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: background,
-              borderRadius:
-                  BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
               children: [
@@ -1256,29 +1551,23 @@ class _NutritionistDashboardScreenState
                 const SizedBox(width: 9),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
                         'Scheduled consultation',
                         style: TextStyle(
                           color: textMuted,
                           fontSize: 10,
-                          fontWeight:
-                              FontWeight.w600,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        _formatDate(
-                          scheduledAt,
-                        ),
-                        style:
-                            const TextStyle(
+                        _formatDate(scheduledAt),
+                        style: const TextStyle(
                           color: textDark,
                           fontSize: 13,
-                          fontWeight:
-                              FontWeight.w800,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                     ],
@@ -1287,14 +1576,8 @@ class _NutritionistDashboardScreenState
               ],
             ),
           ),
-
-          // ------------------------------------------------------
-          // NOTES
-          // ------------------------------------------------------
-
           if (notes.isNotEmpty) ...[
             const SizedBox(height: 12),
-
             const Text(
               'Notes',
               style: TextStyle(
@@ -1303,9 +1586,7 @@ class _NutritionistDashboardScreenState
                 fontWeight: FontWeight.w800,
               ),
             ),
-
             const SizedBox(height: 4),
-
             Text(
               notes,
               style: const TextStyle(
@@ -1315,62 +1596,29 @@ class _NutritionistDashboardScreenState
               ),
             ),
           ],
-
-          // ------------------------------------------------------
-          // VIDEO BUTTON
-          // ------------------------------------------------------
-
           const SizedBox(height: 14),
-
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () {
-                _openVideoConsultation(
-                  appointment,
-                );
-              },
-              icon: const Icon(
-                Icons.video_call_rounded,
-                size: 19,
-              ),
-              label: const Text(
-                'OPEN VIDEO CONSULTATION',
-              ),
-              style:
-                  ElevatedButton.styleFrom(
-                backgroundColor:
-                    darkBrown,
-                foregroundColor:
-                    Colors.white,
+              onPressed: () => _openVideoConsultation(appointment),
+              icon: const Icon(Icons.video_call_rounded, size: 19),
+              label: const Text('OPEN VIDEO CONSULTATION'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: darkBrown,
+                foregroundColor: Colors.white,
                 elevation: 0,
-                padding:
-                    const EdgeInsets.symmetric(
-                  vertical: 13,
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                shape:
-                    RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(
-                    12,
-                  ),
-                ),
-                textStyle:
-                    const TextStyle(
-                  fontWeight:
-                      FontWeight.w800,
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w800,
                   fontSize: 12,
                 ),
               ),
             ),
           ),
-
           const SizedBox(height: 10),
-
-          // ------------------------------------------------------
-          // SESSION REF
-          // ------------------------------------------------------
-
           Text(
             'Session Ref: $appointmentId',
             style: const TextStyle(
@@ -1397,42 +1645,30 @@ class _NutritionistDashboardScreenState
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(16),
-        border: Border.all(
-          color: borderColor,
-        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
       ),
       child: Row(
         children: [
           Container(
-            padding:
-                const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color:
-                  darkBrown.withOpacity(.08),
-              borderRadius:
-                  BorderRadius.circular(11),
+              color: darkBrown.withOpacity(.08),
+              borderRadius: BorderRadius.circular(11),
             ),
-            child: Icon(
-              icon,
-              color: darkBrown,
-              size: 21,
-            ),
+            child: Icon(icon, color: darkBrown, size: 21),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   value,
                   style: const TextStyle(
                     color: textDark,
                     fontSize: 20,
-                    fontWeight:
-                        FontWeight.w900,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -1441,8 +1677,7 @@ class _NutritionistDashboardScreenState
                   style: const TextStyle(
                     color: textMuted,
                     fontSize: 10.5,
-                    fontWeight:
-                        FontWeight.w600,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -1463,25 +1698,16 @@ class _NutritionistDashboardScreenState
     required String subtitle,
   }) {
     return Container(
-      margin: const EdgeInsets.symmetric(
-        horizontal: 2,
-      ),
+      margin: const EdgeInsets.symmetric(horizontal: 2),
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(16),
-        border: Border.all(
-          color: borderColor,
-        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
       ),
       child: Column(
         children: [
-          Icon(
-            icon,
-            size: 42,
-            color: lightBrown,
-          ),
+          Icon(icon, size: 42, color: lightBrown),
           const SizedBox(height: 12),
           Text(
             title,
@@ -1516,17 +1742,14 @@ class _NutritionistDashboardScreenState
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisSize:
-              MainAxisSize.min,
+          mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(
               Icons.error_outline_rounded,
               size: 52,
               color: Colors.red,
             ),
-
             const SizedBox(height: 14),
-
             const Text(
               'Unable to load dashboard',
               textAlign: TextAlign.center,
@@ -1536,9 +1759,7 @@ class _NutritionistDashboardScreenState
                 fontWeight: FontWeight.w800,
               ),
             ),
-
             const SizedBox(height: 8),
-
             Text(
               _error ?? 'Unknown error.',
               textAlign: TextAlign.center,
@@ -1548,23 +1769,14 @@ class _NutritionistDashboardScreenState
                 height: 1.4,
               ),
             ),
-
             const SizedBox(height: 18),
-
             ElevatedButton.icon(
               onPressed: _loadDashboard,
-              icon: const Icon(
-                Icons.refresh_rounded,
-              ),
-              label: const Text(
-                'Try Again',
-              ),
-              style:
-                  ElevatedButton.styleFrom(
-                backgroundColor:
-                    darkBrown,
-                foregroundColor:
-                    Colors.white,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try Again'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: darkBrown,
+                foregroundColor: Colors.white,
               ),
             ),
           ],

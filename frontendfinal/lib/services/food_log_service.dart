@@ -1,17 +1,26 @@
+import 'dart:convert';
 import 'api_client.dart';
 
 class FoodLogService {
   static Future<List<dynamic>> searchFoods(String query) async {
     final res = await ApiClient.get(
-      '/foods/search?query=${Uri.encodeComponent(query)}',
+      '/foods/search?query=${Uri.encodeQueryComponent(query)}',
       requiresAuth: false,
     );
-    return res['foods'] ?? [];
+
+    final results = res['foods'];
+
+    if (results is List) {
+      return results;
+    }
+
+    return [];
   }
 
   static Future<List<dynamic>> getOrthodoxFoods() async {
-    final res = await ApiClient.get('/foods/search?query=fasting', requiresAuth: false);
-    return res['foods'] ?? [];
+    // The JSON food schema does not currently contain a fasting field.
+    // This searches for foods whose names or categories contain "fasting".
+    return searchFoods('fasting');
   }
 
   static Future<Map<String, dynamic>> logMeal({

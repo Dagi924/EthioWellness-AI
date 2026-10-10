@@ -1366,174 +1366,129 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
       // ========================================================
       // APP BAR
       // ========================================================
-
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(70),
         child: Container(
           decoration: const BoxDecoration(
             color: Color(0xFFF7F2EA),
-            border: Border(
-              bottom: BorderSide(
-                color: Color(0xFFEADBCE),
-                width: 1,
-              ),
-            ),
+            border: Border(bottom: BorderSide(color: Color(0xFFEADBCE), width: 1)),
           ),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 10,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: SafeArea(
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 38,
-                        height: 38,
-                        decoration:
-                            const BoxDecoration(
-                          color: Color(0xFF542E13),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.eco_rounded,
-                          color: Colors.white,
-                          size: 22,
-                        ),
+                // Brand Title & Heritage Subtitle
+                Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF542E13),
+                        shape: BoxShape.circle,
                       ),
-                      const SizedBox(width: 10),
-                      const Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                        mainAxisAlignment:
-                            MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            'EthioNutri AI',
-                            style: TextStyle(
-                              fontSize: 17.5,
-                              fontWeight:
-                                  FontWeight.bold,
-                              color:
-                                  Color(0xFF542E13),
-                            ),
-                          ),
-                          Text(
-                            'Today\'s Nutrition & Wellness',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color:
-                                  Color(0xFF78716C),
-                            ),
-                          ),
-                        ],
+                      child: const Icon(
+                        Icons.eco_rounded,
+                        color: Colors.white,
+                        size: 22,
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Text(
+                          'EthioNutri AI',
+                          style: TextStyle(
+                            fontSize: 17.5,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF542E13),
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        Text(
+                          'Today\'s Nutrition & Fasting',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF78716C),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
 
+                // Center Title on wider screens
                 if (isWide)
-                  const Padding(
-                    padding:
-                        EdgeInsets.symmetric(
-                      horizontal: 16,
-                    ),
-                    child: Text(
-                      'Food Logging & Wellness',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight:
-                            FontWeight.bold,
-                        color:
-                            Color(0xFF8D4F28),
-                      ),
+                  const Text(
+                    'Food Logging & Nutrition',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF8D4F28), // Warm terracotta
                     ),
                   ),
 
-                if (isWide)
-                  Row(
-                    mainAxisSize:
-                        MainAxisSize.min,
-                    children: [
-                      _circleButton(
-                        Icons.chat_bubble_outline_rounded,
-                        () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                const AiChatScreen(),
-                          ),
-                        ),
-                        tooltip:
-                            'AI Nutrition Chat',
-                        badgeColor:
-                            const Color(0xFF16A34A),
+                // Top Right Action Controls: Message, Premium, Dietitian, Camera, Refresh
+                Row(
+                  children: [
+                    // 💬 Message / AI Chat Screen Icon
+                    _circleButton(
+                      Icons.chat_bubble_outline_rounded,
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const AiChatScreen()),
                       ),
-                      const SizedBox(width: 7),
-                      _circleButton(
-                        Icons
-                            .workspace_premium_outlined,
-                        () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                const ChapaPaymentScreen(),
-                          ),
-                        ),
-                        tooltip:
-                            'Upgrade to Premium',
-                        iconColor:
-                            const Color(0xFFB45309),
-                        backgroundColor:
-                            const Color(0xFFFEF3C7),
+                      tooltip: 'AI Nutrition Chat',
+                      badgeColor: const Color(0xFF16A34A),
+                    ),
+                    const SizedBox(width: 7),
+
+                    // ⭐ Premium Upgrade Icon (Chapa Payment)
+                    _circleButton(
+                      Icons.workspace_premium_outlined,
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ChapaPaymentScreen()),
                       ),
-                      const SizedBox(width: 7),
-                      _circleButton(
-                        Icons
-                            .medical_services_outlined,
-                        () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                const NutritionistScreen(),
-                          ),
-                        ),
-                        tooltip:
-                            'Dietitian Supervision',
+                      tooltip: 'Upgrade to Premium',
+                      iconColor: const Color(0xFFB45309),
+                      backgroundColor: const Color(0xFFFEF3C7),
+                    ),
+                    const SizedBox(width: 7),
+
+                    // 🩺 Dietitian Supervision Icon
+                    _circleButton(
+                      Icons.medical_services_outlined,
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const NutritionistScreen()),
                       ),
-                      const SizedBox(width: 7),
-                      _circleButton(
-                        Icons.camera_alt_outlined,
-                        () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                const FoodScannerScreen(),
-                          ),
-                        ).then(
-                          (_) => _loadData(),
-                        ),
-                        tooltip:
-                            'AI Food Scanner',
-                      ),
-                      const SizedBox(width: 7),
-                      _circleButton(
-                        Icons.refresh_rounded,
-                        _loadData,
-                        tooltip:
-                            'Refresh Dashboard',
-                      ),
-                    ],
-                  )
-                else
-                  _circleButton(
-                    Icons.refresh_rounded,
-                    _loadData,
-                    tooltip:
-                        'Refresh Dashboard',
-                  ),
+                      tooltip: 'Dietitian Supervision',
+                    ),
+                    const SizedBox(width: 7),
+
+                    // 📷 AI Food Scanner Camera
+                    _circleButton(
+                      Icons.camera_alt_outlined,
+                      () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const FoodScannerScreen()),
+                      ).then((_) => _loadData()),
+                      tooltip: 'AI Food Scanner',
+                    ),
+                    const SizedBox(width: 7),
+
+                    // 🔄 Refresh Nutrients
+                    _circleButton(
+                      Icons.refresh_rounded,
+                      _loadData,
+                      tooltip: 'Refresh Nutrients',
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -3779,3 +3734,4 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
     return button;
   }
 }
+

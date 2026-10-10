@@ -81,6 +81,7 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
 
       Map<String, dynamic>? sleepData;
 
+
       try {
         sleepData = await SleepService.getTodaySleep();
       } catch (_) {
@@ -1167,7 +1168,7 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          'EthioNutri AI',
+                          'EthioWellness AI',
                           style: TextStyle(
                             fontSize: 17.5,
                             fontWeight: FontWeight.bold,

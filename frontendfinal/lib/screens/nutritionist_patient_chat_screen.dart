@@ -250,7 +250,7 @@ class _NutritionistPatientChatScreenState
                   ),
                   const SizedBox(height: 1),
                   const Text(
-                    'Clinical Consultation • EthioNutri AI',
+                    'Clinical Consultation • EthioWellness AI',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,

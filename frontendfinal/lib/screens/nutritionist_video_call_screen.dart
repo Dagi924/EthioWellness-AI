@@ -112,7 +112,7 @@ class _NutritionistVideoCallScreenState
       configOverrides: {
         'startWithAudioMuted': false,
         'startWithVideoMuted': false,
-        'subject': 'EthioNutri Nutrition Consultation',
+        'subject': 'EthioWellness  Consultation',
       },
       featureFlags: {
         'unsaferoomwarning.enabled': false,

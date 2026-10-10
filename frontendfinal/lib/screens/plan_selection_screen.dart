@@ -106,7 +106,7 @@ class _PlanSelectionScreenState extends State<PlanSelectionScreen>
                 SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                      'EthioNutri Premium Unlocked! Database updated to Premium.'),
+                      'EthioWellness Premium Unlocked! Database updated to Premium.'),
                 ),
               ],
             ),

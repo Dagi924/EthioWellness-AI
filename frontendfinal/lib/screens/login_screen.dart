@@ -126,7 +126,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                         ),
                         const SizedBox(width: 10),
                         const Text(
-                          'EthioNutri AI',
+                          'EthioWellness AI',
                           style: TextStyle(
                             fontSize: 19,
                             fontWeight: FontWeight.bold,

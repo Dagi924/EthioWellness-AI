@@ -238,7 +238,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       backgroundColor: const Color(0xFFF7F2EA), // Warm Sand Background
       appBar: AppBar(
         title: const Text(
-          'EthioNutri Admin Portal',
+          'EthioWellness Admin Portal',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
         ),
         backgroundColor: const Color(0xFF542E13), // Deep Cognac Brown

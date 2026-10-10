@@ -1,6 +1,6 @@
 
 // ============================================================
-// ETHIONUTRI AI - OPENROUTER SERVICE
+// EthioWellness AI - OPENROUTER SERVICE
 // ============================================================
 
 const axios = require('axios');
@@ -97,7 +97,7 @@ function getHeaders(apiKey) {
 
     'X-Title':
       process.env.OPENROUTER_SITE_NAME ||
-      'EthioNutri AI',
+      'EthioWellness AI',
   };
 }
 
@@ -290,7 +290,7 @@ function buildChatbotSystemPrompt(
       : [];
 
   return `
-You are EthioNutri AI, an expert nutrition and wellness assistant specializing in Ethiopian traditional foods, nutrition, fasting, sleep, mood, exercise, and healthy lifestyle guidance.
+You are EthioWellness AI, an expert nutrition and wellness assistant specializing in Ethiopian traditional foods, nutrition, fasting, sleep, mood, exercise, and healthy lifestyle guidance.
 
 Use the user's REAL and CURRENT data provided below.
 
@@ -449,7 +449,7 @@ async function callOpenRouter({
   for (const currentModel of modelList) {
     try {
       console.log(
-        `[EthioNutri AI] Trying OpenRouter model: ${currentModel}`
+        `[EthioWellness AI] Trying OpenRouter model: ${currentModel}`
       );
 
       const requestBody = {
@@ -484,7 +484,7 @@ async function callOpenRouter({
         choice?.finish_reason;
 
       console.log(
-        `[EthioNutri AI] ${currentModel} finish_reason: ${
+        `[EthioWellness AI] ${currentModel} finish_reason: ${
           finishReason || 'unknown'
         }`
       );
@@ -541,11 +541,11 @@ async function callOpenRouter({
 
       if (!content) {
         console.error(
-          `[EthioNutri AI] ${currentModel} returned empty content`
+          `[EthioWellness AI] ${currentModel} returned empty content`
         );
 
         console.error(
-          '[EthioNutri AI] Raw OpenRouter response:',
+          '[EthioWellness AI] Raw OpenRouter response:',
           JSON.stringify(
             data,
             null,
@@ -563,11 +563,11 @@ async function callOpenRouter({
       // ======================================================
 
       console.log(
-        `[EthioNutri AI] ${currentModel} response length: ${content.length}`
+        `[EthioWellness AI] ${currentModel} response length: ${content.length}`
       );
 
       console.log(
-        `[EthioNutri AI] ${currentModel} raw content:`,
+        `[EthioWellness AI] ${currentModel} raw content:`,
         content
       );
 
@@ -583,7 +583,7 @@ async function callOpenRouter({
         if (!extractedJson) {
 
           console.warn(
-            `[EthioNutri AI] ${currentModel} returned no JSON object. Trying next model.`
+            `[EthioWellness AI] ${currentModel} returned no JSON object. Trying next model.`
           );
 
           lastError =
@@ -603,11 +603,11 @@ async function callOpenRouter({
         } catch (jsonError) {
 
           console.warn(
-            `[EthioNutri AI] ${currentModel} returned invalid JSON. Trying next model.`
+            `[EthioWellness AI] ${currentModel} returned invalid JSON. Trying next model.`
           );
 
           console.warn(
-            `[EthioNutri AI] Invalid JSON: ${extractedJson}`
+            `[EthioWellness AI] Invalid JSON: ${extractedJson}`
           );
 
           lastError =
@@ -619,7 +619,7 @@ async function callOpenRouter({
         }
 
         console.log(
-          `[EthioNutri AI] ${currentModel} returned valid JSON`
+          `[EthioWellness AI] ${currentModel} returned valid JSON`
         );
       }
 
@@ -628,7 +628,7 @@ async function callOpenRouter({
       // ======================================================
 
       console.log(
-        `[EthioNutri AI] SUCCESS using model: ${currentModel}`
+        `[EthioWellness AI] SUCCESS using model: ${currentModel}`
       );
 
       return {
@@ -656,7 +656,7 @@ async function callOpenRouter({
         error;
 
       console.error(
-        `[EthioNutri AI] Model failed: ${currentModel} | HTTP ${
+        `[EthioWellness AI] Model failed: ${currentModel} | HTTP ${
           status || 'N/A'
         }`
       );
@@ -673,7 +673,7 @@ async function callOpenRouter({
         status === 429
       ) {
         console.warn(
-          `[EthioNutri AI] ${currentModel} is rate-limited. Trying next model.`
+          `[EthioWellness AI] ${currentModel} is rate-limited. Trying next model.`
         );
 
         continue;
@@ -688,7 +688,7 @@ async function callOpenRouter({
         status === 403
       ) {
         console.error(
-          '[EthioNutri AI] OpenRouter authentication/permission error.'
+          '[EthioWellness AI] OpenRouter authentication/permission error.'
         );
 
         continue;
@@ -702,7 +702,7 @@ async function callOpenRouter({
         status === 404
       ) {
         console.warn(
-          `[EthioNutri AI] Model ${currentModel} is unavailable.`
+          `[EthioWellness AI] Model ${currentModel} is unavailable.`
         );
 
         continue;
@@ -716,7 +716,7 @@ async function callOpenRouter({
         status === 400
       ) {
         console.warn(
-          `[EthioNutri AI] ${currentModel} rejected the request. Trying next model.`
+          `[EthioWellness AI] ${currentModel} rejected the request. Trying next model.`
         );
 
         continue;
@@ -730,7 +730,7 @@ async function callOpenRouter({
         status >= 500
       ) {
         console.warn(
-          `[EthioNutri AI] ${currentModel} returned server error. Trying next model.`
+          `[EthioWellness AI] ${currentModel} returned server error. Trying next model.`
         );
 
         continue;
@@ -746,7 +746,7 @@ async function callOpenRouter({
         error?.code === 'ECONNRESET'
       ) {
         console.warn(
-          `[EthioNutri AI] ${currentModel} timed out or connection failed. Trying next model.`
+          `[EthioWellness AI] ${currentModel} timed out or connection failed. Trying next model.`
         );
 
         continue;
@@ -757,7 +757,7 @@ async function callOpenRouter({
       // ======================================================
 
       console.warn(
-        `[EthioNutri AI] Unknown error from ${currentModel}. Trying next model.`
+        `[EthioWellness AI] Unknown error from ${currentModel}. Trying next model.`
       );
 
       continue;
@@ -796,7 +796,7 @@ async function generatePlainText({
     uniqueModels(models);
 
   console.log(
-    `[EthioNutri AI] ${label} model order:`
+    `[EthioWellness AI] ${label} model order:`
   );
 
   console.log(
@@ -812,7 +812,7 @@ async function generatePlainText({
   ) {
     try {
       console.log(
-        `[EthioNutri AI] Trying ${label}: ${model}`
+        `[EthioWellness AI] Trying ${label}: ${model}`
       );
 
       const result =
@@ -849,7 +849,7 @@ async function generatePlainText({
         result.content.trim()
       ) {
         console.log(
-          `[EthioNutri AI] ${label} generated successfully using ${model}`
+          `[EthioWellness AI] ${label} generated successfully using ${model}`
         );
 
         return result.content;
@@ -871,7 +871,7 @@ async function generatePlainText({
         status === 429
       ) {
         console.warn(
-          `[EthioNutri AI] ${model} is rate-limited. Trying next model.`
+          `[EthioWellness AI] ${model} is rate-limited. Trying next model.`
         );
 
         continue;
@@ -882,7 +882,7 @@ async function generatePlainText({
         status === 403
       ) {
         console.warn(
-          `[EthioNutri AI] ${model} rejected the request. Trying next model.`
+          `[EthioWellness AI] ${model} rejected the request. Trying next model.`
         );
 
         continue;
@@ -895,7 +895,7 @@ async function generatePlainText({
       }
 
       console.warn(
-        `[EthioNutri AI] ${label} failed on ${model}:`,
+        `[EthioWellness AI] ${label} failed on ${model}:`,
         error?.message ||
           error
       );
@@ -1071,7 +1071,7 @@ The planDays array must contain 7 days.
               'system',
 
             content:
-              'You are EthioNutri AI. Return valid JSON only.',
+              'You are EthioWellness AI. Return valid JSON only.',
           },
 
           {
@@ -1151,7 +1151,7 @@ The planDays array must contain 7 days.
 
   } catch (error) {
     console.error(
-      '[EthioNutri AI] Meal plan generation failed:',
+      '[EthioWellness AI] Meal plan generation failed:',
       error?.response?.data ||
         error.message
     );
@@ -1171,7 +1171,7 @@ function mealPlanFallback(
 ) {
   return {
     summary:
-      'EthioNutri 7-Day Ethiopian Meal Plan',
+      'EthioWellness 7-Day Ethiopian Meal Plan',
 
     planDays: [
       {
@@ -1793,7 +1793,7 @@ async function sendAiChatPrompt(
       );
 
     console.log(
-      `[EthioNutri AI] Chat context: ${safeSleepData.length} sleep records, ${safeMoodData.length} mood records`
+      `[EthioWellness AI] Chat context: ${safeSleepData.length} sleep records, ${safeMoodData.length} mood records`
     );
 
     const result =
@@ -1838,7 +1838,7 @@ async function sendAiChatPrompt(
 
   } catch (error) {
     console.error(
-      '[EthioNutri AI] Chat failed:',
+      '[EthioWellness AI] Chat failed:',
       error?.response?.data ||
         error.message
     );
@@ -2019,7 +2019,7 @@ async function generateGroceryListWithAI(
   );
 
   const systemPrompt = `
-You are EthioNutri AI, an Ethiopian nutrition and grocery-planning assistant.
+You are EthioWellness AI, an Ethiopian nutrition and grocery-planning assistant.
 
 TASK:
 Create ONE consolidated weekly grocery list from the provided weekly meal plan.
@@ -2370,7 +2370,7 @@ async function analyzeMealImageWithAI(
       imageInputToDataUrl(imageBase64OrUrl);
 
     const systemPrompt = `
-You are EthioNutri AI, an Ethiopian food recognition and nutrition assistant.
+You are EthioWellness AI, an Ethiopian food recognition and nutrition assistant.
 
 Your task is to identify the food shown in the image and estimate its nutritional values.
 
@@ -2498,12 +2498,12 @@ Return exactly one JSON object.
     // --------------------------------------------------------
 
     console.log(
-      '[EthioNutri AI] Vision raw response:',
+      '[EthioWellness AI] Vision raw response:',
       result?.content
     );
 
     console.log(
-      '[EthioNutri AI] Vision model:',
+      '[EthioWellness AI] Vision model:',
       result?.model
     );
 
@@ -2523,7 +2523,7 @@ Return exactly one JSON object.
     }
 
     console.log(
-      '[EthioNutri AI] Vision cleaned JSON:',
+      '[EthioWellness AI] Vision cleaned JSON:',
       cleaned
     );
 
@@ -2537,12 +2537,12 @@ Return exactly one JSON object.
       parsed = JSON.parse(cleaned);
     } catch (parseError) {
       console.error(
-        '[EthioNutri AI] Vision JSON parse error:',
+        '[EthioWellness AI] Vision JSON parse error:',
         parseError.message
       );
 
       console.error(
-        '[EthioNutri AI] Invalid JSON:',
+        '[EthioWellness AI] Invalid JSON:',
         cleaned
       );
 
@@ -2617,7 +2617,7 @@ Return exactly one JSON object.
     // --------------------------------------------------------
 
     console.log(
-      `[EthioNutri AI] Image analysis succeeded using ${result.model}`
+      `[EthioWellness AI] Image analysis succeeded using ${result.model}`
     );
 
     return parsed;
@@ -2625,7 +2625,7 @@ Return exactly one JSON object.
   } catch (error) {
 
     console.error(
-      '[EthioNutri AI] Vision analysis failed:',
+      '[EthioWellness AI] Vision analysis failed:',
       error?.response?.data ||
         error?.message ||
         error
@@ -2708,7 +2708,7 @@ async function getAvailableModels() {
 
   } catch (error) {
     console.error(
-      '[EthioNutri AI] Model discovery failed:',
+      '[EthioWellness AI] Model discovery failed:',
       error?.message ||
         error
     );

@@ -125,7 +125,7 @@ class _MealAndGroceryScreenState
   Future<void> _generateMealPlan() async {
     if (!_isPremium) {
       _showUpgradeModal(
-        'AI 7-Day Fasting Meal Plans are exclusive to EthioNutri Premium members.',
+        'AI 7-Day Fasting Meal Plans are exclusive to EthioWellness Premium members.',
       );
       return;
     }
@@ -235,7 +235,7 @@ class _MealAndGroceryScreenState
   Future<void> _generateGrocery() async {
     if (!_isPremium) {
       _showUpgradeModal(
-        'AI-generated grocery lists require EthioNutri Premium.',
+        'AI-generated grocery lists require EthioWellness Premium.',
       );
       return;
     }
@@ -334,7 +334,7 @@ class _MealAndGroceryScreenState
               height: 14,
             ),
             const Text(
-              'Upgrade to EthioNutri Premium',
+              'Upgrade to EthioWellness Premium',
               style: TextStyle(
                 fontSize: 19,
                 fontWeight:
@@ -456,7 +456,7 @@ class _MealAndGroceryScreenState
           const Color(0xFFF7F2EA),
       appBar: AppBar(
         title: const Text(
-          'Meal Plan & Market Grocery',
+          'Meal and Exercise Plan & Market Grocery',
           style: TextStyle(
             fontWeight:
                 FontWeight.bold,
@@ -926,7 +926,7 @@ class _MealAndGroceryScreenState
             Text(
               _isPremium
                   ? 'Generate your personalized Ethiopian weekly plan with automatic Orthodox and Ramadan fasting alignment.'
-                  : 'Personalized 7-day fasting plans and Teff recipes require an active EthioNutri Premium subscription.',
+                  : 'Personalized 7-day fasting plans and Teff recipes require an active EthioWellness Premium subscription.',
               textAlign:
                   TextAlign.center,
               style:

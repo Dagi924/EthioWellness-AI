@@ -97,7 +97,7 @@ class _ChapaPaymentScreenState extends State<ChapaPaymentScreen>
       backgroundColor: const Color(0xFFF7F2EA), // Warm Sand Background
       appBar: AppBar(
         title: const Text(
-          'Upgrade to EthioNutri Premium',
+          'Upgrade to EthioWellness Premium',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17.5),
         ),
         backgroundColor: const Color(0xFF542E13), // Deep Cognac Brown

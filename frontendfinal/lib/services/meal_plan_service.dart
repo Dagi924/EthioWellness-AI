@@ -10,7 +10,7 @@ class PremiumRequiredException implements Exception {
 
   PremiumRequiredException([
     this.message =
-        'Upgrade to EthioNutri Premium to unlock AI Meal Plans & Smart Grocery Generation.',
+        'Upgrade to EthioWellness Premium to unlock AI Meal Plans & Smart Grocery Generation.',
   ]);
 
   @override

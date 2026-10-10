@@ -31,7 +31,7 @@ class _PaymentSuccessScreenState extends State<PaymentSuccessScreen> {
     }
 
     // Flutter Web fallback:
-    // /payment-success?tx_ref=ethionutri-tx-123
+    // /payment-success?tx_ref=EthioWellness-tx-123
     final uri = Uri.base;
     return uri.queryParameters['tx_ref'];
   }
@@ -92,7 +92,7 @@ class _PaymentSuccessScreenState extends State<PaymentSuccessScreen> {
           _transactionDetails = res;
           _message =
               'Your Chapa payment has been verified successfully. '
-              'EthioNutri Premium is now active.';
+              'EthioWellness Premium is now active.';
         });
       } else {
         if (!mounted) return;

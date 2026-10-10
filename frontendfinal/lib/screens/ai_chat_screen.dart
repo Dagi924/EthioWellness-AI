@@ -40,7 +40,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
   void initState() {
     super.initState();
     _messages.add(ChatMessage(
-      text: 'Selam! I am EthioNutri AI, calibrated to your profile metrics, Ethiopian fasting calendar (ጾም), and FAO food tables. Ask me anything about your meals or daily nutrition!',
+      text: 'Selam! I am EthioWellness AI, calibrated to your profile metrics, Ethiopian fasting calendar (ጾም), and FAO food tables. Ask me anything about your meals or daily nutrition!',
       isUser: false,
       timestamp: DateTime.now(),
     ));
@@ -235,7 +235,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'EthioNutri AI Assistant',
+              'EthioWellnessAI Assistant',
               style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold),
             ),
             Text(

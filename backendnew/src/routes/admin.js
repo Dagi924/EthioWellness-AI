@@ -549,4 +549,70 @@ router.get(
     }
   }
 );
+// ============================================================
+// PATCH /api/v1/admin/nutritionists/:id/approval
+// Approve or deactivate a nutritionist
+// ============================================================
+
+router.patch(
+  '/nutritionists/:id/approval',
+  authenticateToken,
+  requireRole('admin'),
+  async (req, res) => {
+    try {
+      const nutritionistId = req.params.id;
+      const { isApproved } = req.body;
+
+      if (typeof isApproved !== 'boolean') {
+        return res.status(400).json({
+          error: 'isApproved must be true or false',
+        });
+      }
+
+      const existing = await db
+        .select({
+          id: nutritionists.id,
+          userId: nutritionists.userId,
+        })
+        .from(nutritionists)
+        .where(eq(nutritionists.id, nutritionistId))
+        .limit(1);
+
+      if (existing.length === 0) {
+        return res.status(404).json({
+          error: 'Nutritionist not found',
+        });
+      }
+
+      const updated = await db
+        .update(nutritionists)
+        .set({
+          isApproved,
+        })
+        .where(eq(nutritionists.id, nutritionistId))
+        .returning({
+          id: nutritionists.id,
+          userId: nutritionists.userId,
+          isApproved: nutritionists.isApproved,
+        });
+
+      return res.status(200).json({
+        message: isApproved
+          ? 'Nutritionist approved successfully'
+          : 'Nutritionist approval revoked successfully',
+        nutritionist: updated[0],
+      });
+    } catch (error) {
+      console.error(
+        '[ADMIN] Update nutritionist approval error:',
+        error
+      );
+
+      return res.status(500).json({
+        error: 'Failed to update nutritionist approval',
+      });
+    }
+  }
+);
+
 module.exports = router;

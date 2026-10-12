@@ -1,6 +1,12 @@
+
 import 'dart:io';
+
 import 'package:flutter/material.dart';
+
 import '../services/auth_service.dart';
+import '../services/app_localization.dart';
+import '../widgets/language_toggle_button.dart';
+
 import 'main_shell_screen.dart';
 import 'signup_screen.dart';
 
@@ -11,7 +17,8 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStateMixin {
+class _LoginScreenState extends State<LoginScreen>
+    with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -24,18 +31,32 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   late final Animation<double> _fadeAnimation;
   late final Animation<Offset> _slideAnimation;
 
+  String _t(String key) => AppLocalization.instance.tr(key);
+
   @override
   void initState() {
     super.initState();
+
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
-    _fadeAnimation = CurvedAnimation(parent: _entranceController, curve: Curves.easeOut);
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _entranceController,
+      curve: Curves.easeOut,
+    );
+
     _slideAnimation = Tween<Offset>(
       begin: const Offset(0, 0.06),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _entranceController, curve: Curves.easeOutCubic));
+    ).animate(
+      CurvedAnimation(
+        parent: _entranceController,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+
     _entranceController.forward();
   }
 
@@ -49,9 +70,11 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
   Future<void> _handleLogin() async {
     FocusScope.of(context).unfocus();
+
     if (!_formKey.currentState!.validate()) {
       return;
     }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -75,15 +98,18 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         );
       } else {
         throw Exception(
-          response['error'] ?? 'Authentication failed. Please try again.',
+          response['error'] ?? _t('authentication_failed'),
         );
       }
     } on SocketException {
+      if (!mounted) return;
+
       setState(() {
-        _errorMessage =
-            'Cannot reach server. If testing on a physical phone, ensure useProductionUrl = true in ApiClient. If on Android emulator, ensure host is 10.0.2.2:3000.';
+        _errorMessage = _t('server_connection_error');
       });
     } catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _errorMessage = e.toString().replaceAll('Exception: ', '');
       });
@@ -96,74 +122,90 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: AppLocalization.instance,
+      builder: (context, child) {
+        return _buildLoginPage();
+      },
+    );
+  }
+
+  Widget _buildLoginPage() {
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
-        backgroundColor: const Color(0xFFF7F2EA), // Warm Sand Background
+        backgroundColor: const Color(0xFFF7F2EA),
         body: SafeArea(
           child: Column(
             children: [
-              // --- Top App Header / Branding Bar ---
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 16,
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF8D4F28), // Earthy Brown Leaf Badge
-                            shape: BoxShape.circle,
+                    Flexible(
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF8D4F28),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.eco_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
                           ),
-                          child: const Icon(
-                            Icons.eco_rounded,
-                            color: Colors.white,
-                            size: 20,
+                          const SizedBox(width: 10),
+                          Flexible(
+                            child: Text(
+                              _t('app_name'),
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 19,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF542E13),
+                                letterSpacing: -0.3,
+                              ),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 10),
-                        const Text(
-                          'EthioWellness AI',
-                          style: TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF542E13), // Rich Earthy Brown
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                    Row(
-                      children: [
-                        _circleActionIcon(Icons.language_rounded),
-                        const SizedBox(width: 8),
-                        _circleActionIcon(Icons.dark_mode_outlined),
-                      ],
-                    ),
+                    const SizedBox(width: 8),
+                    const LanguageToggleButton(),
                   ],
                 ),
               ),
 
-              // --- Main Card Center Area ---
               Expanded(
                 child: Center(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
                     child: FadeTransition(
                       opacity: _fadeAnimation,
                       child: SlideTransition(
                         position: _slideAnimation,
                         child: Container(
-                          constraints: const BoxConstraints(maxWidth: 440),
+                          constraints: const BoxConstraints(
+                            maxWidth: 440,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(28),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFF542E13).withOpacity(0.08),
+                                color: const Color(0xFF542E13)
+                                    .withOpacity(0.08),
                                 blurRadius: 28,
                                 offset: const Offset(0, 10),
                               ),
@@ -174,16 +216,18 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              // Top Curved Earthy Bronze Banner
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 28.0),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 28,
+                                ),
                                 decoration: const BoxDecoration(
                                   gradient: LinearGradient(
                                     begin: Alignment.topLeft,
                                     end: Alignment.bottomRight,
                                     colors: [
-                                      Color(0xFF542E13), // Deep Earthy Brown
-                                      Color(0xFF8D4F28), // Warm Cognac Bronze
+                                      Color(0xFF542E13),
+                                      Color(0xFF8D4F28),
                                     ],
                                   ),
                                   borderRadius: BorderRadius.only(
@@ -193,9 +237,10 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                 ),
                                 child: Column(
                                   children: [
-                                    const Text(
-                                      'Hello, Friend!',
-                                      style: TextStyle(
+                                    Text(
+                                      _t('hello_friend'),
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
                                         fontSize: 24,
                                         fontWeight: FontWeight.bold,
                                         color: Colors.white,
@@ -204,7 +249,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                     ),
                                     const SizedBox(height: 6),
                                     Text(
-                                      'Start your tailored Ethiopian wellness & nutrition journey.',
+                                      _t('login_welcome_message'),
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
                                         fontSize: 13,
@@ -216,47 +261,55 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                 ),
                               ),
 
-                              // Sign In Form Area
                               Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 28.0),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 28,
+                                ),
                                 child: Form(
                                   key: _formKey,
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
                                     children: [
-                                      const Text(
-                                        'Sign In',
+                                      Text(
+                                        _t('sign_in'),
                                         textAlign: TextAlign.center,
-                                        style: TextStyle(
+                                        style: const TextStyle(
                                           fontSize: 28,
                                           fontWeight: FontWeight.bold,
-                                          color: Color(0xFF542E13), // Deep Brown Title
+                                          color: Color(0xFF542E13),
                                           letterSpacing: -0.5,
                                         ),
                                       ),
                                       const SizedBox(height: 6),
-                                      const Text(
-                                        'Sign in with your email & password',
+                                      Text(
+                                        _t('sign_in_subtitle'),
                                         textAlign: TextAlign.center,
-                                        style: TextStyle(
+                                        style: const TextStyle(
                                           fontSize: 13.5,
                                           color: Color(0xFF78716C),
                                         ),
                                       ),
                                       const SizedBox(height: 24),
 
-                                      // Error Display Box
                                       if (_errorMessage != null)
                                         Container(
                                           padding: const EdgeInsets.all(12),
-                                          margin: const EdgeInsets.only(bottom: 18),
+                                          margin: const EdgeInsets.only(
+                                            bottom: 18,
+                                          ),
                                           decoration: BoxDecoration(
                                             color: const Color(0xFFFEF2F2),
-                                            borderRadius: BorderRadius.circular(12),
-                                            border: Border.all(color: const Color(0xFFFECACA)),
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            border: Border.all(
+                                              color: const Color(0xFFFECACA),
+                                            ),
                                           ),
                                           child: Row(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             children: [
                                               const Icon(
                                                 Icons.error_outline_rounded,
@@ -278,76 +331,98 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                           ),
                                         ),
 
-                                      // Email Address Input
                                       TextFormField(
                                         controller: _emailController,
-                                        keyboardType: TextInputType.emailAddress,
+                                        keyboardType:
+                                            TextInputType.emailAddress,
                                         textInputAction: TextInputAction.next,
-                                        style: const TextStyle(fontSize: 14.5, color: Color(0xFF1C1917)),
+                                        style: const TextStyle(
+                                          fontSize: 14.5,
+                                          color: Color(0xFF1C1917),
+                                        ),
                                         validator: (value) {
-                                          if (value == null || value.trim().isEmpty) {
-                                            return 'Please enter your email address';
+                                          if (value == null ||
+                                              value.trim().isEmpty) {
+                                            return _t('enter_email');
                                           }
-                                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value.trim())) {
-                                            return 'Please enter a valid email address';
+
+                                          if (!RegExp(
+                                            r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                                          ).hasMatch(value.trim())) {
+                                            return _t('valid_email');
                                           }
+
                                           return null;
                                         },
                                         decoration: _inputDecoration(
-                                          hint: 'Email Address',
+                                          hint: _t('email_address'),
                                           icon: Icons.email_outlined,
                                         ),
                                       ),
                                       const SizedBox(height: 14),
 
-                                      // Password Input
                                       TextFormField(
                                         controller: _passwordController,
                                         obscureText: _obscurePassword,
                                         textInputAction: TextInputAction.done,
-                                        onFieldSubmitted: (_) => _handleLogin(),
-                                        style: const TextStyle(fontSize: 14.5, color: Color(0xFF1C1917)),
+                                        onFieldSubmitted: (_) =>
+                                            _handleLogin(),
+                                        style: const TextStyle(
+                                          fontSize: 14.5,
+                                          color: Color(0xFF1C1917),
+                                        ),
                                         validator: (value) {
-                                          if (value == null || value.isEmpty) {
-                                            return 'Please enter your password';
+                                          if (value == null ||
+                                              value.isEmpty) {
+                                            return _t('enter_password');
                                           }
+
                                           if (value.length < 6) {
-                                            return 'Password must be at least 6 characters';
+                                            return _t('password_min_length');
                                           }
+
                                           return null;
                                         },
                                         decoration: _inputDecoration(
-                                          hint: 'Password',
+                                          hint: _t('password'),
                                           icon: Icons.lock_outline,
                                           suffix: IconButton(
                                             icon: Icon(
-                                              _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                              _obscurePassword
+                                                  ? Icons.visibility_off_outlined
+                                                  : Icons.visibility_outlined,
                                               color: const Color(0xFFA8A29E),
                                               size: 20,
                                             ),
                                             onPressed: () {
-                                              setState(() => _obscurePassword = !_obscurePassword);
+                                              setState(() {
+                                                _obscurePassword =
+                                                    !_obscurePassword;
+                                              });
                                             },
                                           ),
                                         ),
                                       ),
                                       const SizedBox(height: 14),
 
-                                      // Forgot Password Link
                                       Align(
                                         alignment: Alignment.center,
                                         child: TextButton(
                                           onPressed: () {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              const SnackBar(
-                                                content: Text('Password reset link sent to your registered email.'),
-                                                backgroundColor: Color(0xFF542E13),
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  _t('password_reset_message'),
+                                                ),
+                                                backgroundColor:
+                                                    const Color(0xFF542E13),
                                               ),
                                             );
                                           },
-                                          child: const Text(
-                                            'Forget Your Password?',
-                                            style: TextStyle(
+                                          child: Text(
+                                            _t('forgot_password'),
+                                            style: const TextStyle(
                                               color: Color(0xFF1C1917),
                                               fontSize: 13,
                                               fontWeight: FontWeight.w600,
@@ -357,16 +432,21 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                       ),
                                       const SizedBox(height: 12),
 
-                                      // Sign In Button (Rich Warm Brown)
                                       ElevatedButton(
-                                        onPressed: _isLoading ? null : _handleLogin,
+                                        onPressed:
+                                            _isLoading ? null : _handleLogin,
                                         style: ElevatedButton.styleFrom(
-                                          backgroundColor: const Color(0xFF542E13), // Heritage Warm Brown
+                                          backgroundColor:
+                                              const Color(0xFF542E13),
                                           foregroundColor: Colors.white,
-                                          disabledBackgroundColor: const Color(0xFFA8826B),
-                                          padding: const EdgeInsets.symmetric(vertical: 15),
+                                          disabledBackgroundColor:
+                                              const Color(0xFFA8826B),
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 15,
+                                          ),
                                           shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(14),
+                                            borderRadius:
+                                                BorderRadius.circular(14),
                                           ),
                                           elevation: 0,
                                         ),
@@ -374,14 +454,15 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                             ? const SizedBox(
                                                 height: 20,
                                                 width: 20,
-                                                child: CircularProgressIndicator(
+                                                child:
+                                                    CircularProgressIndicator(
                                                   color: Colors.white,
                                                   strokeWidth: 2.2,
                                                 ),
                                               )
-                                            : const Text(
-                                                'SIGN IN',
-                                                style: TextStyle(
+                                            : Text(
+                                                _t('sign_in').toUpperCase(),
+                                                style: const TextStyle(
                                                   fontSize: 14.5,
                                                   fontWeight: FontWeight.bold,
                                                   letterSpacing: 0.8,
@@ -390,23 +471,31 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                       ),
                                       const SizedBox(height: 18),
 
-                                      // Shortcut to Signup
                                       Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
                                         children: [
-                                          const Text(
-                                            "Don't have an account?",
-                                            style: TextStyle(color: Color(0xFF78716C), fontSize: 13.5),
+                                          Flexible(
+                                            child: Text(
+                                              _t('no_account'),
+                                              style: const TextStyle(
+                                                color: Color(0xFF78716C),
+                                                fontSize: 13.5,
+                                              ),
+                                            ),
                                           ),
                                           TextButton(
                                             onPressed: () {
                                               Navigator.of(context).push(
-                                                MaterialPageRoute(builder: (_) => const SignupScreen()),
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      const SignupScreen(),
+                                                ),
                                               );
                                             },
-                                            child: const Text(
-                                              'Sign Up',
-                                              style: TextStyle(
+                                            child: Text(
+                                              _t('sign_up'),
+                                              style: const TextStyle(
                                                 color: Color(0xFF542E13),
                                                 fontWeight: FontWeight.bold,
                                                 fontSize: 13.5,
@@ -441,41 +530,50 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   }) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(color: Color(0xFFA8A29E), fontSize: 14),
+      hintStyle: const TextStyle(
+        color: Color(0xFFA8A29E),
+        fontSize: 14,
+      ),
       filled: true,
-      fillColor: const Color(0xFFF8F3EC), // Soft warm cream fill
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-      prefixIcon: Icon(icon, color: const Color(0xFFA8A29E), size: 19),
+      fillColor: const Color(0xFFF8F3EC),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 15,
+      ),
+      prefixIcon: Icon(
+        icon,
+        color: const Color(0xFFA8A29E),
+        size: 19,
+      ),
       suffixIcon: suffix,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFFEADBCE), width: 1),
+        borderSide: const BorderSide(
+          color: Color(0xFFEADBCE),
+          width: 1,
+        ),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFFEADBCE), width: 1),
+        borderSide: const BorderSide(
+          color: Color(0xFFEADBCE),
+          width: 1,
+        ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF542E13), width: 1.8),
+        borderSide: const BorderSide(
+          color: Color(0xFF542E13),
+          width: 1.8,
+        ),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFFDC2626), width: 1),
+        borderSide: const BorderSide(
+          color: Color(0xFFDC2626),
+          width: 1,
+        ),
       ),
-    );
-  }
-
-  Widget _circleActionIcon(IconData icon) {
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFFEADBCE)),
-      ),
-      child: Icon(icon, size: 18, color: const Color(0xFF1C1917)),
     );
   }
 }

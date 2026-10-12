@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+
 import '../services/auth_service.dart';
+import '../services/app_localization.dart';
+import '../widgets/language_toggle_button.dart';
 import 'login_screen.dart';
 import 'user_appointments_screen.dart';
 
@@ -18,19 +21,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _ageCtrl = TextEditingController();
   final _weightCtrl = TextEditingController();
   final _heightCtrl = TextEditingController();
+
   String _gender = 'male';
   String _activityLevel = 'moderate';
   String _goal = 'maintain_weight';
   String _fastingPractice = 'orthodox';
 
+  AppLocalization get _loc => AppLocalization.instance;
+
+  String _tr(
+    String key, {
+    Map<String, String> params = const {},
+  }) {
+    return _loc.tr(key, params: params);
+  }
+
   @override
   void initState() {
     super.initState();
+    _loc.addListener(_onLanguageChanged);
     _loadProfile();
+  }
+
+  void _onLanguageChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    _loc.removeListener(_onLanguageChanged);
     _ageCtrl.dispose();
     _weightCtrl.dispose();
     _heightCtrl.dispose();
@@ -44,6 +63,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final res = await AuthService.getProfile();
       final profile = res['profile'] ?? {};
 
+      if (!mounted) return;
+
       setState(() {
         _profileData = res;
         _ageCtrl.text = (profile['age'] ?? 28).toString();
@@ -51,9 +72,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
             (profile['weightKg'] ?? profile['weight_kg'] ?? 70).toString();
         _heightCtrl.text =
             (profile['heightCm'] ?? profile['height_cm'] ?? 175).toString();
+
         _gender = profile['gender'] ?? 'male';
         _activityLevel =
-            profile['activityLevel'] ?? profile['activity_level'] ?? 'moderate';
+            profile['activityLevel'] ??
+            profile['activity_level'] ??
+            'moderate';
         _goal = profile['goal'] ?? 'maintain_weight';
         _fastingPractice =
             profile['fastingPractice'] ??
@@ -64,7 +88,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to load profile: $e'),
+            content: Text(
+              _tr(
+                'failed_to_load_profile',
+                params: {'error': e.toString()},
+              ),
+            ),
             backgroundColor: const Color(0xFFDC2626),
           ),
         );
@@ -92,10 +121,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Color(0xFF542E13),
+          SnackBar(
+            backgroundColor: const Color(0xFF542E13),
             content: Text(
-              'Profile updated & targets calibrated successfully!',
+              _tr('profile_updated_successfully'),
             ),
           ),
         );
@@ -105,7 +134,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: const Color(0xFFDC2626),
-            content: Text('Save error: $e'),
+            content: Text(
+              _tr(
+                'save_error',
+                params: {'error': e.toString()},
+              ),
+            ),
           ),
         );
       }
@@ -116,9 +150,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  // ============================================================
-  // OPEN USER APPOINTMENTS
-  // ============================================================
   void _openAppointments() {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -144,10 +175,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F2EA),
-
-      // ============================================================
-      // APP BAR
-      // ============================================================
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(64),
         child: Container(
@@ -161,48 +188,47 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           padding: const EdgeInsets.symmetric(
-            horizontal: 16,
+            horizontal: 12,
             vertical: 8,
           ),
           child: SafeArea(
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF8D4F28),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.person_outline,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'Profile & Fasting Settings',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF542E13),
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                  ],
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF8D4F28),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.person_outline,
+                    color: Colors.white,
+                    size: 20,
+                  ),
                 ),
-
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _tr('profile_fasting_settings'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF542E13),
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                ),
+              LanguageToggleButton(),
                 IconButton(
                   icon: const Icon(
                     Icons.logout_rounded,
                     color: Color(0xFF965126),
                     size: 22,
                   ),
-                  tooltip: 'Logout',
+                  tooltip: _tr('logout'),
                   onPressed: () async {
                     await AuthService.logout();
 
@@ -221,10 +247,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
       ),
-
-      // ============================================================
-      // BODY
-      // ============================================================
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(
           horizontal: 20,
@@ -233,9 +255,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ========================================================
-            // USER PROFILE HEADER CARD
-            // ========================================================
+            // USER PROFILE HEADER
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
@@ -274,15 +294,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       color: Colors.white,
                     ),
                   ),
-
                   const SizedBox(width: 16),
-
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          user['name'] ?? 'User',
+                          user['name'] ?? _tr('default_user'),
                           style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -307,9 +325,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             color: const Color(0xFFF5EBE1),
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: const Text(
-                            'Ethiopian Health Blueprint',
-                            style: TextStyle(
+                          child: Text(
+                            _tr('ethiopian_health_blueprint'),
+                            style: const TextStyle(
                               fontSize: 10.5,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF8D4F28),
@@ -325,9 +343,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             const SizedBox(height: 18),
 
-            // ========================================================
             // APPOINTMENTS & CONSULTATIONS
-            // ========================================================
             Container(
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -365,25 +381,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             size: 26,
                           ),
                         ),
-
                         const SizedBox(width: 14),
-
-                        const Expanded(
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Appointments & Consultations',
-                                style: TextStyle(
+                                _tr('appointments_consultations'),
+                                style: const TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.bold,
                                   color: Color(0xFF542E13),
                                 ),
                               ),
-                              SizedBox(height: 4),
+                              const SizedBox(height: 4),
                               Text(
-                                'Schedule a nutritionist or join a video consultation',
-                                style: TextStyle(
+                                _tr('schedule_nutritionist_consultation'),
+                                style: const TextStyle(
                                   fontSize: 12.5,
                                   color: Color(0xFF78716C),
                                 ),
@@ -391,7 +405,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ],
                           ),
                         ),
-
                         const Icon(
                           Icons.chevron_right_rounded,
                           color: Color(0xFF965126),
@@ -406,11 +419,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             const SizedBox(height: 22),
 
-            // ========================================================
             // PHYSICAL METRICS
-            // ========================================================
             _buildSectionHeader(
-              'Physical Metrics',
+              _tr('physical_metrics'),
               Icons.monitor_weight_outlined,
             ),
 
@@ -421,21 +432,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Expanded(
                   child: _buildMetricField(
                     controller: _ageCtrl,
-                    label: 'Age',
+                    label: _tr('age'),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: _buildMetricField(
                     controller: _weightCtrl,
-                    label: 'Weight (kg)',
+                    label: _tr('weight_kg'),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: _buildMetricField(
                     controller: _heightCtrl,
-                    label: 'Height (cm)',
+                    label: _tr('height_cm'),
                   ),
                 ),
               ],
@@ -443,11 +454,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             const SizedBox(height: 22),
 
-            // ========================================================
             // FASTING TRADITION
-            // ========================================================
             _buildSectionHeader(
-              'Fasting Tradition (የጾም ሥርዓት)',
+              _tr('fasting_tradition'),
               Icons.church_outlined,
             ),
 
@@ -478,23 +487,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     color: Color(0xFF1C1917),
                     fontWeight: FontWeight.w600,
                   ),
-                  items: const [
+                  items: [
                     DropdownMenuItem(
                       value: 'orthodox',
                       child: Text(
-                        'Ethiopian Orthodox Fasting (ጾም) • Strict Vegan',
+                        _tr('orthodox_fasting_strict_vegan'),
                       ),
                     ),
                     DropdownMenuItem(
                       value: 'ramadan',
                       child: Text(
-                        'Islamic Fasting (Ramadan & Sunnah)',
+                        _tr('islamic_fasting'),
                       ),
                     ),
                     DropdownMenuItem(
                       value: 'none',
                       child: Text(
-                        'No Fasting Practice (Standard Diet)',
+                        _tr('no_fasting_standard_diet'),
                       ),
                     ),
                   ],
@@ -509,11 +518,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             const SizedBox(height: 22),
 
-            // ========================================================
             // DIETARY GOAL
-            // ========================================================
             _buildSectionHeader(
-              'Dietary Goal',
+              _tr('dietary_goal'),
               Icons.flag_outlined,
             ),
 
@@ -544,29 +551,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     color: Color(0xFF1C1917),
                     fontWeight: FontWeight.w600,
                   ),
-                  items: const [
+                  items: [
                     DropdownMenuItem(
                       value: 'maintain_weight',
                       child: Text(
-                        'Maintain Weight & Wellness',
+                        _tr('maintain_weight_wellness'),
                       ),
                     ),
                     DropdownMenuItem(
                       value: 'lose_weight',
                       child: Text(
-                        'Weight Loss (Caloric Deficit)',
+                        _tr('weight_loss_caloric_deficit'),
                       ),
                     ),
                     DropdownMenuItem(
                       value: 'gain_muscle',
                       child: Text(
-                        'Muscle Gain (High Protein)',
+                        _tr('muscle_gain_high_protein'),
                       ),
                     ),
                     DropdownMenuItem(
                       value: 'iron_boost',
                       child: Text(
-                        'Combat Anemia (High Red Teff)',
+                        _tr('combat_anemia_high_red_teff'),
                       ),
                     ),
                   ],
@@ -581,18 +588,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             const SizedBox(height: 32),
 
-            // ========================================================
             // SAVE BUTTON
-            // ========================================================
             ElevatedButton(
               onPressed: _isSaving ? null : _saveProfile,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF542E13),
                 foregroundColor: Colors.white,
                 disabledBackgroundColor: const Color(0xFFA8826B),
-                padding: const EdgeInsets.symmetric(
-                  vertical: 16,
-                ),
+                padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
@@ -607,9 +610,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         strokeWidth: 2.2,
                       ),
                     )
-                  : const Text(
-                      'UPDATE PROFILE & CALIBRATE TARGETS',
-                      style: TextStyle(
+                  : Text(
+                      _tr('update_profile_calibrate_targets'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
                         fontSize: 13.5,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 0.6,
@@ -622,9 +626,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // ================================================================
   // SECTION HEADER
-  // ================================================================
   Widget _buildSectionHeader(
     String title,
     IconData icon,
@@ -637,21 +639,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
           color: const Color(0xFF965126),
         ),
         const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF542E13),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF542E13),
+            ),
           ),
         ),
       ],
     );
   }
 
-  // ================================================================
   // METRIC FIELD
-  // ================================================================
   Widget _buildMetricField({
     required TextEditingController controller,
     required String label,

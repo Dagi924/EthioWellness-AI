@@ -1,6 +1,10 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
+
 import '../services/auth_service.dart';
+import '../services/app_localization.dart';
+import '../widgets/language_toggle_button.dart';
 import 'plan_selection_screen.dart';
 import 'login_screen.dart';
 
@@ -16,30 +20,39 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
-  // Step 1: Account Credentials
+  AppLocalization get _loc => AppLocalization.instance;
+
+  String _tr(
+    String key, {
+    Map<String, String> params = const {},
+  }) {
+    return _loc.tr(key, params: params);
+  }
+
+  // Step 1: Account credentials
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _obscurePassword = true;
 
-  // Step 2: Physical Metrics
+  // Step 2: Physical metrics
   final _ageCtrl = TextEditingController(text: '26');
   final _heightCtrl = TextEditingController(text: '172');
   final _weightCtrl = TextEditingController(text: '68');
   final _targetWeightCtrl = TextEditingController(text: '65');
   String _gender = 'male';
 
-  // Step 3: Fasting Practice & Language
+  // Step 3: Fasting practice and language
   String _fastingPractice = 'orthodox';
   String _language = 'en';
 
-  // Step 4: Dietary Goals & Health Conditions
+  // Step 4: Dietary goals and health conditions
   String _goal = 'maintain_weight';
   String _budgetLevel = 'medium';
   final List<String> _selectedHealthConditions = [];
 
-  // Step 5: Daily Target Macros
+  // Step 5: Daily macro targets
   final _calorieCtrl = TextEditingController(text: '2000');
   final _proteinCtrl = TextEditingController(text: '65');
   final _carbsCtrl = TextEditingController(text: '230');
@@ -47,7 +60,18 @@ class _SignupScreenState extends State<SignupScreen> {
   final _waterCtrl = TextEditingController(text: '2.5');
 
   @override
+  void initState() {
+    super.initState();
+    _loc.addListener(_onLanguageChanged);
+  }
+
+  void _onLanguageChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    _loc.removeListener(_onLanguageChanged);
     _nameCtrl.dispose();
     _emailCtrl.dispose();
     _phoneCtrl.dispose();
@@ -66,6 +90,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
   void _recalculateMacroTargets() {
     final weight = double.tryParse(_weightCtrl.text) ?? 68.0;
+
     int cal = 2000;
     int protein = 60;
     int carbs = 220;
@@ -98,34 +123,42 @@ class _SignupScreenState extends State<SignupScreen> {
 
   bool _validateCurrentStep() {
     setState(() => _errorMessage = null);
+
     if (_currentStep == 0) {
       if (_nameCtrl.text.trim().isEmpty) {
-        setState(() => _errorMessage = 'Please enter your full name');
+        setState(() => _errorMessage = _tr('signup_error_full_name'));
         return false;
       }
+
       if (_emailCtrl.text.trim().isEmpty ||
           !RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
               .hasMatch(_emailCtrl.text.trim())) {
-        setState(() => _errorMessage = 'Please enter a valid email address');
+        setState(() => _errorMessage = _tr('signup_error_email'));
         return false;
       }
+
       if (_passwordCtrl.text.length < 6) {
-        setState(() => _errorMessage = 'Password must be at least 6 characters');
+        setState(() => _errorMessage = _tr('signup_error_password_length'));
         return false;
       }
     } else if (_currentStep == 1) {
-      if (int.tryParse(_ageCtrl.text) == null ||
-          (int.tryParse(_ageCtrl.text)! < 10)) {
-        setState(() => _errorMessage = 'Please enter a valid age');
+      final age = int.tryParse(_ageCtrl.text);
+      final height = double.tryParse(_heightCtrl.text);
+      final weight = double.tryParse(_weightCtrl.text);
+
+      if (age == null || age < 10) {
+        setState(() => _errorMessage = _tr('signup_error_age'));
         return false;
       }
-      if (double.tryParse(_heightCtrl.text) == null ||
-          double.tryParse(_weightCtrl.text) == null) {
-        setState(() => _errorMessage = 'Please enter valid height and weight');
+
+      if (height == null || weight == null || height <= 0 || weight <= 0) {
+        setState(() => _errorMessage = _tr('signup_error_height_weight'));
         return false;
       }
+
       _recalculateMacroTargets();
     }
+
     return true;
   }
 
@@ -140,7 +173,9 @@ class _SignupScreenState extends State<SignupScreen> {
         name: _nameCtrl.text.trim(),
         email: _emailCtrl.text.trim().toLowerCase(),
         password: _passwordCtrl.text,
-        phone: _phoneCtrl.text.trim().isNotEmpty ? _phoneCtrl.text.trim() : null,
+        phone: _phoneCtrl.text.trim().isNotEmpty
+            ? _phoneCtrl.text.trim()
+            : null,
         fastingPractice: _fastingPractice,
         healthConditions: _selectedHealthConditions,
         language: _language,
@@ -171,16 +206,22 @@ class _SignupScreenState extends State<SignupScreen> {
           (route) => false,
         );
       } else {
-        throw Exception(res['error'] ?? 'Registration failed');
+        throw Exception(
+          res['error'] ?? _tr('signup_error_registration_failed'),
+        );
       }
     } on SocketException {
-      setState(() {
-        _errorMessage = 'Network error: Cannot connect to backend server.';
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = _tr('signup_error_network');
+        });
+      }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString().replaceAll('Exception: ', '');
+        });
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -191,59 +232,64 @@ class _SignupScreenState extends State<SignupScreen> {
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
-        backgroundColor: const Color(0xFFF7F2EA), // Warm Sand Background
+        backgroundColor: const Color(0xFFF7F2EA),
         body: SafeArea(
           child: Column(
             children: [
-              // Header Brand & Icons
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 14.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 14,
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF8D4F28),
-                            shape: BoxShape.circle,
+                    Flexible(
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF8D4F28),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.eco_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
                           ),
-                          child: const Icon(
-                            Icons.eco_rounded,
-                            color: Colors.white,
-                            size: 20,
+                          const SizedBox(width: 10),
+                          Flexible(
+                            child: Text(
+                              _tr('app_name'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 19,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF542E13),
+                                letterSpacing: -0.3,
+                              ),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 10),
-                        const Text(
-                          'EthioWellness AI',
-                          style: TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF542E13),
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                    Row(
-                      children: [
-                        _circleActionIcon(Icons.language_rounded),
-                        const SizedBox(width: 8),
-                        _circleActionIcon(Icons.dark_mode_outlined),
-                      ],
-                    ),
+                    const SizedBox(width: 8),
+                    const LanguageToggleButton(),
                   ],
                 ),
               ),
 
-              // Main Wizard Card
               Expanded(
                 child: Center(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 10,
+                    ),
                     child: Container(
                       constraints: const BoxConstraints(maxWidth: 480),
                       decoration: BoxDecoration(
@@ -262,16 +308,18 @@ class _SignupScreenState extends State<SignupScreen> {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Top Curved Banner
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 24,
+                            ),
                             decoration: const BoxDecoration(
                               gradient: LinearGradient(
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
                                 colors: [
-                                  Color(0xFF542E13), // Deep Brown
-                                  Color(0xFF8D4F28), // Earthy Cognac
+                                  Color(0xFF542E13),
+                                  Color(0xFF8D4F28),
                                 ],
                               ),
                               borderRadius: BorderRadius.only(
@@ -281,9 +329,10 @@ class _SignupScreenState extends State<SignupScreen> {
                             ),
                             child: Column(
                               children: [
-                                const Text(
-                                  'Create Account',
-                                  style: TextStyle(
+                                Text(
+                                  _tr('signup_create_account'),
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
                                     fontSize: 24,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
@@ -291,16 +340,27 @@ class _SignupScreenState extends State<SignupScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Step ${_currentStep + 1} of 5 • Tailored Ethiopian Nutrition',
-                                  style: TextStyle(fontSize: 12.5, color: Colors.white.withOpacity(0.9)),
+                                  _tr(
+                                    'signup_step_progress',
+                                    params: {
+                                      'step': '${_currentStep + 1}',
+                                      'total': '5',
+                                    },
+                                  ),
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: Colors.white.withOpacity(0.9),
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-
-                          // Form Wizard Body
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 22.0, vertical: 24.0),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 22,
+                              vertical: 24,
+                            ),
                             child: _buildFormWizard(),
                           ),
                         ],
@@ -320,10 +380,10 @@ class _SignupScreenState extends State<SignupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
-          'Create Account',
+        Text(
+          _tr('signup_create_account'),
           textAlign: TextAlign.center,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
             color: Color(0xFF542E13),
@@ -331,21 +391,21 @@ class _SignupScreenState extends State<SignupScreen> {
           ),
         ),
         const SizedBox(height: 4),
-        const Text(
-          'Register with your email',
+        Text(
+          _tr('signup_register_email'),
           textAlign: TextAlign.center,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 13,
             color: Color(0xFF78716C),
           ),
         ),
         const SizedBox(height: 18),
 
-        // 5-Step Progress Indicators
         Row(
           children: List.generate(5, (index) {
             final isDone = index < _currentStep;
             final isCurrent = index == _currentStep;
+
             return Expanded(
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 250),
@@ -374,12 +434,19 @@ class _SignupScreenState extends State<SignupScreen> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 18),
+                const Icon(
+                  Icons.error_outline,
+                  color: Color(0xFFDC2626),
+                  size: 18,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     _errorMessage!,
-                    style: const TextStyle(color: Color(0xFFDC2626), fontSize: 12.5),
+                    style: const TextStyle(
+                      color: Color(0xFFDC2626),
+                      fontSize: 12.5,
+                    ),
                   ),
                 ),
               ],
@@ -389,14 +456,15 @@ class _SignupScreenState extends State<SignupScreen> {
         _buildStepContent(),
         const SizedBox(height: 22),
 
-        // Step Navigation Buttons
         Row(
           children: [
             if (_currentStep > 0)
               Expanded(
                 flex: 1,
                 child: OutlinedButton(
-                  onPressed: _isLoading ? null : () => setState(() => _currentStep--),
+                  onPressed: _isLoading
+                      ? null
+                      : () => setState(() => _currentStep--),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     side: const BorderSide(color: Color(0xFF542E13)),
@@ -404,9 +472,9 @@ class _SignupScreenState extends State<SignupScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text(
-                    'Back',
-                    style: TextStyle(
+                  child: Text(
+                    _tr('back'),
+                    style: const TextStyle(
                       color: Color(0xFF542E13),
                       fontWeight: FontWeight.bold,
                     ),
@@ -429,7 +497,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         }
                       },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF542E13), // Brownish Theme Button
+                  backgroundColor: const Color(0xFF542E13),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
@@ -447,11 +515,14 @@ class _SignupScreenState extends State<SignupScreen> {
                         ),
                       )
                     : Text(
-                        _currentStep == 4 ? 'SIGN UP & SELECT PLAN' : 'NEXT STEP',
+                        _currentStep == 4
+                            ? _tr('signup_submit')
+                            : _tr('next_step'),
+                        textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 13.5,
                           fontWeight: FontWeight.bold,
-                          letterSpacing: 0.8,
+                          letterSpacing: 0.5,
                         ),
                       ),
               ),
@@ -463,19 +534,26 @@ class _SignupScreenState extends State<SignupScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text(
-              'Already have an account?',
-              style: TextStyle(color: Color(0xFF78716C), fontSize: 13),
+            Flexible(
+              child: Text(
+                _tr('signup_already_account'),
+                style: const TextStyle(
+                  color: Color(0xFF78716C),
+                  fontSize: 13,
+                ),
+              ),
             ),
             TextButton(
               onPressed: () {
                 Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const LoginScreen(),
+                  ),
                 );
               },
-              child: const Text(
-                'Sign In',
-                style: TextStyle(
+              child: Text(
+                _tr('sign_in'),
+                style: const TextStyle(
                   color: Color(0xFF542E13),
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
@@ -511,14 +589,14 @@ class _SignupScreenState extends State<SignupScreen> {
       children: [
         _textField(
           controller: _nameCtrl,
-          label: 'Full Name',
+          label: _tr('signup_full_name'),
           icon: Icons.person_outline,
-          hint: 'e.g. Abebe Bikila',
+          hint: _tr('signup_name_hint'),
         ),
         const SizedBox(height: 12),
         _textField(
           controller: _emailCtrl,
-          label: 'Email Address',
+          label: _tr('signup_email'),
           icon: Icons.email_outlined,
           keyboardType: TextInputType.emailAddress,
           hint: 'name@example.com',
@@ -526,7 +604,7 @@ class _SignupScreenState extends State<SignupScreen> {
         const SizedBox(height: 12),
         _textField(
           controller: _phoneCtrl,
-          label: 'Phone (For Telebirr / CBE)',
+          label: _tr('signup_phone'),
           icon: Icons.phone_outlined,
           keyboardType: TextInputType.phone,
           hint: '+251911223344',
@@ -535,24 +613,49 @@ class _SignupScreenState extends State<SignupScreen> {
         TextField(
           controller: _passwordCtrl,
           obscureText: _obscurePassword,
-          style: const TextStyle(fontSize: 14.5, color: Color(0xFF1C1917)),
+          style: const TextStyle(
+            fontSize: 14.5,
+            color: Color(0xFF1C1917),
+          ),
           decoration: InputDecoration(
-            labelText: 'Password (min. 6 chars)',
-            hintText: 'Enter secure password',
-            hintStyle: const TextStyle(color: Color(0xFFA8A29E), fontSize: 13.5),
-            labelStyle: const TextStyle(color: Color(0xFF78716C), fontSize: 13.5),
-            prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFFA8A29E), size: 19),
+            labelText: _tr('signup_password'),
+            hintText: _tr('signup_password_hint'),
+            hintStyle: const TextStyle(
+              color: Color(0xFFA8A29E),
+              fontSize: 13.5,
+            ),
+            labelStyle: const TextStyle(
+              color: Color(0xFF78716C),
+              fontSize: 13.5,
+            ),
+            prefixIcon: const Icon(
+              Icons.lock_outline,
+              color: Color(0xFFA8A29E),
+              size: 19,
+            ),
             suffixIcon: IconButton(
+              tooltip: _obscurePassword
+                  ? _tr('show_password')
+                  : _tr('hide_password'),
               icon: Icon(
-                _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                _obscurePassword
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined,
                 color: const Color(0xFFA8A29E),
                 size: 20,
               ),
-              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+              onPressed: () {
+                setState(() {
+                  _obscurePassword = !_obscurePassword;
+                });
+              },
             ),
             filled: true,
             fillColor: const Color(0xFFF8F3EC),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: const BorderSide(color: Color(0xFFEADBCE)),
@@ -563,7 +666,10 @@ class _SignupScreenState extends State<SignupScreen> {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFF542E13), width: 1.8),
+              borderSide: const BorderSide(
+                color: Color(0xFF542E13),
+                width: 1.8,
+              ),
             ),
           ),
         ),
@@ -580,7 +686,7 @@ class _SignupScreenState extends State<SignupScreen> {
             Expanded(
               child: _textField(
                 controller: _ageCtrl,
-                label: 'Age',
+                label: _tr('age'),
                 icon: Icons.cake_outlined,
                 keyboardType: TextInputType.number,
               ),
@@ -589,27 +695,24 @@ class _SignupScreenState extends State<SignupScreen> {
             Expanded(
               child: DropdownButtonFormField<String>(
                 value: _gender,
-                decoration: InputDecoration(
-                  labelText: 'Gender',
-                  labelStyle: const TextStyle(color: Color(0xFF78716C), fontSize: 13),
-                  filled: true,
-                  fillColor: const Color(0xFFF8F3EC),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFFEADBCE)),
+                decoration: _dropdownDecoration(_tr('gender')),
+                items: [
+                  DropdownMenuItem(
+                    value: 'male',
+                    child: Text(_tr('gender_male')),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFFEADBCE)),
+                  DropdownMenuItem(
+                    value: 'female',
+                    child: Text(_tr('gender_female')),
                   ),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'male', child: Text('Male')),
-                  DropdownMenuItem(value: 'female', child: Text('Female')),
-                  DropdownMenuItem(value: 'other', child: Text('Other')),
+                  DropdownMenuItem(
+                    value: 'other',
+                    child: Text(_tr('gender_other')),
+                  ),
                 ],
-                onChanged: (v) => setState(() => _gender = v!),
+                onChanged: (v) {
+                  if (v != null) setState(() => _gender = v);
+                },
               ),
             ),
           ],
@@ -617,7 +720,7 @@ class _SignupScreenState extends State<SignupScreen> {
         const SizedBox(height: 12),
         _textField(
           controller: _heightCtrl,
-          label: 'Height (cm)',
+          label: _tr('height_cm'),
           icon: Icons.height,
           keyboardType: TextInputType.number,
         ),
@@ -627,7 +730,7 @@ class _SignupScreenState extends State<SignupScreen> {
             Expanded(
               child: _textField(
                 controller: _weightCtrl,
-                label: 'Weight (kg)',
+                label: _tr('weight_kg'),
                 icon: Icons.monitor_weight_outlined,
                 keyboardType: TextInputType.number,
               ),
@@ -636,7 +739,7 @@ class _SignupScreenState extends State<SignupScreen> {
             Expanded(
               child: _textField(
                 controller: _targetWeightCtrl,
-                label: 'Target (kg)',
+                label: _tr('signup_target_weight'),
                 icon: Icons.flag_outlined,
                 keyboardType: TextInputType.number,
               ),
@@ -651,62 +754,55 @@ class _SignupScreenState extends State<SignupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Fasting Tradition (የጾም ሥርዓት)',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF542E13)),
-        ),
+        _sectionTitle(_tr('fasting_tradition')),
         const SizedBox(height: 8),
         _radioOption(
           'orthodox',
-          'Ethiopian Orthodox Tsom (ጾም)',
-          'Wed/Fri, Abiy Tsom, Tsome Nebiyat 100% vegan rules.',
+          _tr('signup_orthodox_title'),
+          _tr('signup_orthodox_description'),
           Icons.church_outlined,
         ),
         _radioOption(
           'ramadan',
-          'Islamic Fasting (Ramadan & Sunnah)',
-          'Suhoor and Iftar timing and hydration schedules.',
+          _tr('signup_ramadan_title'),
+          _tr('signup_ramadan_description'),
           Icons.nightlight_round,
         ),
         _radioOption(
           'intermittent',
-          'Intermittent Fasting (16/8)',
-          '16-hour fasting window with tailored Ethiopian meals.',
+          _tr('signup_intermittent_title'),
+          _tr('signup_intermittent_description'),
           Icons.timer_outlined,
         ),
         _radioOption(
           'none',
-          'No Fasting Practice',
-          'Standard balanced Ethiopian nutrition plan.',
+          _tr('signup_no_fasting_title'),
+          _tr('signup_no_fasting_description'),
           Icons.restaurant,
         ),
         const SizedBox(height: 12),
-        const Text(
-          'Preferred Language',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF542E13)),
-        ),
+        _sectionTitle(_tr('signup_preferred_language')),
         const SizedBox(height: 6),
         DropdownButtonFormField<String>(
           value: _language,
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: const Color(0xFFF8F3EC),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFEADBCE)),
+          decoration: _dropdownDecoration(_tr('signup_preferred_language')),
+          items: [
+            DropdownMenuItem(
+              value: 'en',
+              child: Text(_tr('language_english')),
             ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFEADBCE)),
+            DropdownMenuItem(
+              value: 'am',
+              child: Text(_tr('language_amharic')),
             ),
-          ),
-          items: const [
-            DropdownMenuItem(value: 'en', child: Text('English')),
-            DropdownMenuItem(value: 'am', child: Text('Amharic (አማርኛ)')),
-            DropdownMenuItem(value: 'om', child: Text('Afaan Oromoo')),
+            DropdownMenuItem(
+              value: 'om',
+              child: Text(_tr('language_oromo')),
+            ),
           ],
-          onChanged: (v) => setState(() => _language = v!),
+          onChanged: (v) {
+            if (v != null) setState(() => _language = v);
+          },
         ),
       ],
     );
@@ -716,94 +812,75 @@ class _SignupScreenState extends State<SignupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Primary Dietary Goal',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF542E13)),
-        ),
+        _sectionTitle(_tr('signup_primary_goal')),
         const SizedBox(height: 6),
         DropdownButtonFormField<String>(
           value: _goal,
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: const Color(0xFFF8F3EC),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFEADBCE)),
+          decoration: _dropdownDecoration(_tr('signup_primary_goal')),
+          items: [
+            DropdownMenuItem(
+              value: 'maintain_weight',
+              child: Text(_tr('maintain_weight_wellness')),
             ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFEADBCE)),
+            DropdownMenuItem(
+              value: 'lose_weight',
+              child: Text(_tr('weight_loss_caloric_deficit')),
             ),
-          ),
-          items: const [
             DropdownMenuItem(
-                value: 'maintain_weight',
-                child: Text('Maintain Weight & Wellness')),
+              value: 'gain_muscle',
+              child: Text(_tr('muscle_gain_high_protein')),
+            ),
             DropdownMenuItem(
-                value: 'lose_weight',
-                child: Text('Weight Loss (Caloric Deficit)')),
-            DropdownMenuItem(
-                value: 'gain_muscle',
-                child: Text('Muscle Gain (High Protein)')),
-            DropdownMenuItem(
-                value: 'iron_boost',
-                child: Text('Combat Anemia (Red Teff & Iron Focus)')),
+              value: 'iron_boost',
+              child: Text(_tr('combat_anemia_high_red_teff')),
+            ),
           ],
           onChanged: (v) {
-            setState(() => _goal = v!);
-            _recalculateMacroTargets();
+            if (v != null) {
+              setState(() => _goal = v);
+              _recalculateMacroTargets();
+            }
           },
         ),
         const SizedBox(height: 14),
-        const Text(
-          'Health Conditions (Optional)',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF542E13)),
-        ),
+        _sectionTitle(_tr('signup_health_conditions_optional')),
         const SizedBox(height: 6),
         Wrap(
           spacing: 6,
           runSpacing: 6,
           children: [
-            _conditionChip('anemia', 'Anemia / Low Iron'),
-            _conditionChip('diabetes', 'Type 2 Diabetes'),
-            _conditionChip('hypertension', 'Hypertension'),
-            _conditionChip('lactose_intolerance', 'Lactose Sensitive'),
+            _conditionChip('anemia', _tr('health_anemia')),
+            _conditionChip('diabetes', _tr('health_diabetes')),
+            _conditionChip('hypertension', _tr('health_hypertension')),
+            _conditionChip(
+              'lactose_intolerance',
+              _tr('health_lactose_intolerance'),
+            ),
           ],
         ),
         const SizedBox(height: 14),
-        const Text(
-          'Weekly Grocery Budget',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF542E13)),
-        ),
+        _sectionTitle(_tr('signup_weekly_budget')),
         const SizedBox(height: 6),
         DropdownButtonFormField<String>(
           value: _budgetLevel,
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: const Color(0xFFF8F3EC),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFEADBCE)),
+          decoration: _dropdownDecoration(_tr('signup_weekly_budget')),
+          items: [
+            DropdownMenuItem(
+              value: 'low',
+              child: Text(_tr('signup_budget_low')),
             ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFEADBCE)),
+            DropdownMenuItem(
+              value: 'medium',
+              child: Text(_tr('signup_budget_medium')),
             ),
-          ),
-          items: const [
             DropdownMenuItem(
-                value: 'low',
-                child: Text('Budget-Friendly (Shiro, Misir, Gomen, Kinche)')),
-            DropdownMenuItem(
-                value: 'medium',
-                child: Text('Moderate (Teff Injera, Fish, Eggs, Vegetables)')),
-            DropdownMenuItem(
-                value: 'high',
-                child: Text('Premium (Lean Beef, Doro, Specialty Teff)')),
+              value: 'high',
+              child: Text(_tr('signup_budget_high')),
+            ),
           ],
-          onChanged: (v) => setState(() => _budgetLevel = v!),
+          onChanged: (v) {
+            if (v != null) setState(() => _budgetLevel = v);
+          },
         ),
       ],
     );
@@ -816,20 +893,27 @@ class _SignupScreenState extends State<SignupScreen> {
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: const Color(0xFFF5EBE1), // Warm Sand Tint
+            color: const Color(0xFFF5EBE1),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: const Color(0xFFEADBCE)),
           ),
           child: Row(
             children: [
-              const Icon(Icons.bolt, color: Color(0xFF8D4F28), size: 26),
+              const Icon(
+                Icons.bolt,
+                color: Color(0xFF8D4F28),
+                size: 26,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${_calorieCtrl.text} kcal / day',
+                      _tr(
+                        'signup_calories_per_day',
+                        params: {'calories': _calorieCtrl.text},
+                      ),
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -837,8 +921,14 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                     ),
                     Text(
-                      'FAO Daily Target for ${_goal.replaceAll('_', ' ')}',
-                      style: const TextStyle(fontSize: 11.5, color: Color(0xFF8D4F28)),
+                      _tr(
+                        'signup_daily_target_for',
+                        params: {'goal': _tr(_goalTranslationKey())},
+                      ),
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF8D4F28),
+                      ),
                     ),
                   ],
                 ),
@@ -852,7 +942,7 @@ class _SignupScreenState extends State<SignupScreen> {
             Expanded(
               child: _textField(
                 controller: _proteinCtrl,
-                label: 'Protein (g)',
+                label: _tr('signup_protein_g'),
                 keyboardType: TextInputType.number,
               ),
             ),
@@ -860,7 +950,7 @@ class _SignupScreenState extends State<SignupScreen> {
             Expanded(
               child: _textField(
                 controller: _carbsCtrl,
-                label: 'Carbs (g)',
+                label: _tr('signup_carbs_g'),
                 keyboardType: TextInputType.number,
               ),
             ),
@@ -868,7 +958,7 @@ class _SignupScreenState extends State<SignupScreen> {
             Expanded(
               child: _textField(
                 controller: _fatsCtrl,
-                label: 'Fats (g)',
+                label: _tr('signup_fats_g'),
                 keyboardType: TextInputType.number,
               ),
             ),
@@ -877,11 +967,61 @@ class _SignupScreenState extends State<SignupScreen> {
         const SizedBox(height: 12),
         _textField(
           controller: _waterCtrl,
-          label: 'Daily Water (Liters)',
+          label: _tr('signup_daily_water_liters'),
           icon: Icons.water_drop_outlined,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          keyboardType: const TextInputType.numberWithOptions(
+            decimal: true,
+          ),
         ),
       ],
+    );
+  }
+
+  String _goalTranslationKey() {
+    switch (_goal) {
+      case 'lose_weight':
+        return 'goal_lose_weight';
+      case 'gain_muscle':
+        return 'goal_gain_muscle';
+      case 'iron_boost':
+        return 'goal_iron_boost';
+      default:
+        return 'goal_maintain_weight';
+    }
+  }
+
+  InputDecoration _dropdownDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(
+        color: Color(0xFF78716C),
+        fontSize: 13,
+      ),
+      filled: true,
+      fillColor: const Color(0xFFF8F3EC),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 14,
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFEADBCE)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFEADBCE)),
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontWeight: FontWeight.bold,
+        fontSize: 14,
+        color: Color(0xFF542E13),
+      ),
     );
   }
 
@@ -895,16 +1035,34 @@ class _SignupScreenState extends State<SignupScreen> {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
-      style: const TextStyle(fontSize: 14, color: Color(0xFF1C1917)),
+      style: const TextStyle(
+        fontSize: 14,
+        color: Color(0xFF1C1917),
+      ),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: const TextStyle(color: Color(0xFF78716C), fontSize: 13),
+        labelStyle: const TextStyle(
+          color: Color(0xFF78716C),
+          fontSize: 13,
+        ),
         hintText: hint,
-        hintStyle: const TextStyle(color: Color(0xFFA8A29E), fontSize: 13),
-        prefixIcon: icon != null ? Icon(icon, color: const Color(0xFFA8A29E), size: 19) : null,
+        hintStyle: const TextStyle(
+          color: Color(0xFFA8A29E),
+          fontSize: 13,
+        ),
+        prefixIcon: icon != null
+            ? Icon(
+                icon,
+                color: const Color(0xFFA8A29E),
+                size: 19,
+              )
+            : null,
         filled: true,
         fillColor: const Color(0xFFF8F3EC),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 13,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: Color(0xFFEADBCE)),
@@ -915,24 +1073,37 @@ class _SignupScreenState extends State<SignupScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF542E13), width: 1.8),
+          borderSide: const BorderSide(
+            color: Color(0xFF542E13),
+            width: 1.8,
+          ),
         ),
       ),
     );
   }
 
-  Widget _radioOption(String val, String title, String subtitle, IconData icon) {
+  Widget _radioOption(
+    String val,
+    String title,
+    String subtitle,
+    IconData icon,
+  ) {
     final isSelected = _fastingPractice == val;
+
     return GestureDetector(
       onTap: () => setState(() => _fastingPractice = val),
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFF5EBE1) : const Color(0xFFF8F3EC),
+          color: isSelected
+              ? const Color(0xFFF5EBE1)
+              : const Color(0xFFF8F3EC),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? const Color(0xFF542E13) : const Color(0xFFEADBCE),
+            color: isSelected
+                ? const Color(0xFF542E13)
+                : const Color(0xFFEADBCE),
             width: isSelected ? 1.8 : 1,
           ),
         ),
@@ -940,7 +1111,9 @@ class _SignupScreenState extends State<SignupScreen> {
           children: [
             Icon(
               icon,
-              color: isSelected ? const Color(0xFF542E13) : const Color(0xFF78716C),
+              color: isSelected
+                  ? const Color(0xFF542E13)
+                  : const Color(0xFF78716C),
               size: 20,
             ),
             const SizedBox(width: 10),
@@ -953,12 +1126,17 @@ class _SignupScreenState extends State<SignupScreen> {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
-                      color: isSelected ? const Color(0xFF542E13) : const Color(0xFF1C1917),
+                      color: isSelected
+                          ? const Color(0xFF542E13)
+                          : const Color(0xFF1C1917),
                     ),
                   ),
                   Text(
                     subtitle,
-                    style: const TextStyle(fontSize: 11, color: Color(0xFF78716C)),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF78716C),
+                    ),
                   ),
                 ],
               ),
@@ -971,14 +1149,29 @@ class _SignupScreenState extends State<SignupScreen> {
 
   Widget _conditionChip(String id, String label) {
     final isSelected = _selectedHealthConditions.contains(id);
+
     return FilterChip(
-      label: Text(label, style: TextStyle(fontSize: 12, color: isSelected ? const Color(0xFF542E13) : const Color(0xFF1C1917))),
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          color: isSelected
+              ? const Color(0xFF542E13)
+              : const Color(0xFF1C1917),
+        ),
+      ),
       selected: isSelected,
       selectedColor: const Color(0xFFF5EBE1),
       checkmarkColor: const Color(0xFF542E13),
       backgroundColor: const Color(0xFFF8F3EC),
-      side: BorderSide(color: isSelected ? const Color(0xFF542E13) : const Color(0xFFEADBCE)),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      side: BorderSide(
+        color: isSelected
+            ? const Color(0xFF542E13)
+            : const Color(0xFFEADBCE),
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
       onSelected: (selected) {
         setState(() {
           if (selected) {
@@ -988,19 +1181,6 @@ class _SignupScreenState extends State<SignupScreen> {
           }
         });
       },
-    );
-  }
-
-  Widget _circleActionIcon(IconData icon) {
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFFEADBCE)),
-      ),
-      child: Icon(icon, size: 18, color: const Color(0xFF1C1917)),
     );
   }
 }

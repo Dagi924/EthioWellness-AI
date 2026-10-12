@@ -2,7 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
 import '../services/appointment_service.dart';
+import '../services/app_localization.dart';
+import '../widgets/language_toggle_button.dart';
 import 'nutritionist_video_call_screen.dart';
+
+String _tr(String key) => AppLocalization.instance.tr(key);
+
+// ==================================================================
+// USER APPOINTMENTS SCREEN
+// ==================================================================
 
 class UserAppointmentsScreen extends StatefulWidget {
   const UserAppointmentsScreen({super.key});
@@ -12,29 +20,42 @@ class UserAppointmentsScreen extends StatefulWidget {
       _UserAppointmentsScreenState();
 }
 
-class _UserAppointmentsScreenState
-    extends State<UserAppointmentsScreen> {
+class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
   bool _loading = true;
   String? _error;
-
   List<dynamic> _appointments = [];
 
   static const Color darkBrown = Color(0xFF4A2C1A);
   static const Color brown = Color(0xFF6B4226);
-  static const Color lightBrown = Color(0xFF8B5E3C);
   static const Color background = Color(0xFFF8F5F1);
   static const Color textDark = Color(0xFF2D211B);
   static const Color textMuted = Color(0xFF7A6D65);
   static const Color borderColor = Color(0xFFE5DDD6);
 
+  late final AppLocalization _localization;
+
   @override
   void initState() {
     super.initState();
+
+    _localization = AppLocalization.instance;
+    _localization.addListener(_onLanguageChanged);
+
     _loadAppointments();
   }
 
+  void _onLanguageChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _localization.removeListener(_onLanguageChanged);
+    super.dispose();
+  }
+
   // ============================================================
-  // LOAD USER APPOINTMENTS
+  // LOAD APPOINTMENTS
   // ============================================================
 
   Future<void> _loadAppointments() async {
@@ -53,18 +74,13 @@ class _UserAppointmentsScreenState
       if (!mounted) return;
 
       if (response is Map) {
-        final appointments =
-            response['appointments'];
+        final appointments = response['appointments'];
 
-        if (appointments is List) {
-          _appointments =
-              List<dynamic>.from(appointments);
-        } else {
-          _appointments = [];
-        }
+        _appointments = appointments is List
+            ? List<dynamic>.from(appointments)
+            : [];
       } else if (response is List) {
-        _appointments =
-            List<dynamic>.from(response);
+        _appointments = List<dynamic>.from(response);
       } else {
         _appointments = [];
       }
@@ -89,122 +105,101 @@ class _UserAppointmentsScreenState
   Future<void> _joinVideoConsultation(
     Map<String, dynamic> appointment,
   ) async {
-    final appointmentId =
-        appointment['id']?.toString();
+    final appointmentId = appointment['id']?.toString();
 
-    if (appointmentId == null ||
-        appointmentId.isEmpty) {
+    if (appointmentId == null || appointmentId.isEmpty) {
       _showSnackBar(
-        'Appointment ID is missing.',
+        _tr('appointment_id_missing'),
         isError: true,
       );
       return;
     }
 
-    final scheduledAt =
-        _parseDate(
-      appointment['scheduledAt'],
-    );
+    final scheduledAt = _parseDate(appointment['scheduledAt']);
 
     if (scheduledAt == null) {
       _showSnackBar(
-        'Appointment time is invalid.',
+        _tr('appointment_time_invalid'),
         isError: true,
       );
       return;
     }
 
-    final status =
-        appointment['status']
-            ?.toString()
-            .toLowerCase();
+    final status = appointment['status']?.toString().toLowerCase();
 
-    if (status == 'cancelled' ||
-        status == 'canceled') {
+    if (status == 'cancelled' || status == 'canceled') {
       _showSnackBar(
-        'This appointment has been cancelled.',
+        _tr('appointment_cancelled'),
         isError: true,
       );
       return;
     }
+
+    bool loadingDialogShown = false;
 
     try {
       _showLoadingDialog();
-      
-final session =
-    await AppointmentService
-        .getPatientVideoSession(
-  appointmentId,
-);
+      loadingDialogShown = true;
+
+      final session =
+          await AppointmentService.getPatientVideoSession(
+        appointmentId,
+      );
 
       if (!mounted) return;
 
-      Navigator.of(context).pop();
+      if (loadingDialogShown) {
+        Navigator.of(context, rootNavigator: true).pop();
+        loadingDialogShown = false;
+      }
 
-      final roomName =
-          session['roomName']?.toString();
+      final roomName = session['roomName']?.toString();
 
-      if (roomName == null ||
-          roomName.isEmpty) {
+      if (roomName == null || roomName.isEmpty) {
         _showSnackBar(
-          'Video room could not be created.',
+          _tr('video_room_creation_failed'),
           isError: true,
         );
         return;
       }
 
-      final nutritionist =
-          appointment['nutritionist'];
+      final nutritionist = appointment['nutritionist'];
 
-      String nutritionistName =
-          'Nutritionist';
-
+      String nutritionistName = _tr('nutritionist');
       String? nutritionistEmail;
 
       if (nutritionist is Map) {
         nutritionistName =
-            nutritionist['name']
-                    ?.toString() ??
-                nutritionist['userName']
-                    ?.toString() ??
-                'Nutritionist';
+            nutritionist['name']?.toString() ??
+            nutritionist['userName']?.toString() ??
+            nutritionistName;
 
-        nutritionistEmail =
-            nutritionist['email']
-                ?.toString();
+        nutritionistEmail = nutritionist['email']?.toString();
       }
 
       nutritionistName =
-          appointment['nutritionistName']
-                  ?.toString() ??
-              nutritionistName;
+          appointment['nutritionistName']?.toString() ??
+          nutritionistName;
 
       nutritionistEmail =
-          appointment['nutritionistEmail']
-                  ?.toString() ??
-              nutritionistEmail;
+          appointment['nutritionistEmail']?.toString() ??
+          nutritionistEmail;
 
-      final endsAt =
-          _parseDate(
+      final endsAt = _parseDate(
         appointment['endsAt'] ??
             appointment['endAt'] ??
             appointment['endTime'],
       );
 
-      Navigator.push(
+      await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) =>
-              NutritionistVideoCallScreen(
+          builder: (_) => NutritionistVideoCallScreen(
             roomName: roomName,
-            participantName:
-                nutritionistName,
-            participantEmail:
-                nutritionistEmail,
-            appointmentId:
-                appointmentId,
-            scheduledAt:
-                scheduledAt,
+            participantName: nutritionistName,
+            participantEmail: nutritionistEmail,
+            appointmentId: appointmentId,
+            scheduledAt: scheduledAt,
             endsAt: endsAt,
           ),
         ),
@@ -212,10 +207,13 @@ final session =
     } catch (e) {
       if (!mounted) return;
 
-      Navigator.of(context).pop();
+      if (loadingDialogShown &&
+          Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
 
       _showSnackBar(
-        'Unable to join consultation: ${_cleanError(e)}',
+        '${_tr('unable_to_join_consultation')}: ${_cleanError(e)}',
         isError: true,
       );
     }
@@ -229,11 +227,10 @@ final session =
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            const ScheduleAppointmentScreen(),
+        builder: (_) => const ScheduleAppointmentScreen(),
       ),
     ).then((_) {
-      _loadAppointments();
+      if (mounted) _loadAppointments();
     });
   }
 
@@ -244,112 +241,82 @@ final session =
   DateTime? _parseDate(dynamic value) {
     if (value == null) return null;
 
-    if (value is DateTime) {
-      return value.toLocal();
-    }
+    if (value is DateTime) return value.toLocal();
 
-    final parsed =
-        DateTime.tryParse(
-      value.toString(),
-    );
-
-    return parsed?.toLocal();
+    return DateTime.tryParse(value.toString())?.toLocal();
   }
 
   String _cleanError(dynamic error) {
-    String message =
-        error.toString();
+    String message = error.toString();
 
-    if (message.startsWith(
-      'Exception:',
-    )) {
-      message =
-          message.substring(10).trim();
+    if (message.startsWith('Exception:')) {
+      message = message.substring(10).trim();
     }
 
     return message;
   }
 
-  String _formatDate(
-    dynamic value,
-  ) {
-    final date =
-        _parseDate(value);
+  String _formatDate(dynamic value) {
+    final date = _parseDate(value);
 
-    if (date == null) {
-      return '-';
-    }
+    if (date == null) return '-';
 
-    final hour =
-        date.hour == 0
-            ? 12
-            : date.hour > 12
-                ? date.hour - 12
-                : date.hour;
+    final hour = date.hour == 0
+        ? 12
+        : date.hour > 12
+            ? date.hour - 12
+            : date.hour;
 
-    final minute =
-        date.minute
-            .toString()
-            .padLeft(2, '0');
-
-    final period =
-        date.hour >= 12
-            ? 'PM'
-            : 'AM';
+    final minute = date.minute.toString().padLeft(2, '0');
+    final period = date.hour >= 12 ? 'PM' : 'AM';
 
     return '${date.day}/${date.month}/${date.year} '
         '$hour:$minute $period';
   }
 
-  bool _isPast(
-    dynamic value,
-  ) {
-    final date =
-        _parseDate(value);
+  bool _isPast(dynamic value) {
+    final date = _parseDate(value);
 
-    if (date == null) {
-      return false;
-    }
+    if (date == null) return false;
 
-    return !date.isAfter(
-      DateTime.now(),
-    );
+    return !date.isAfter(DateTime.now());
   }
 
-  bool _isCancelled(
-    dynamic status,
-  ) {
-    final value =
-        status
-            ?.toString()
-            .toLowerCase();
+  bool _isCancelled(dynamic status) {
+    final value = status?.toString().toLowerCase();
 
-    return value == 'cancelled' ||
-        value == 'canceled';
+    return value == 'cancelled' || value == 'canceled';
   }
 
-  Color _statusColor(
-    dynamic status,
-  ) {
-    switch (
-        status
-            ?.toString()
-            .toLowerCase()) {
+  Color _statusColor(dynamic status) {
+    switch (status?.toString().toLowerCase()) {
       case 'confirmed':
         return Colors.green;
-
       case 'completed':
         return Colors.blue;
-
       case 'cancelled':
       case 'canceled':
         return Colors.red;
-
       case 'pending':
         return Colors.orange;
-
       default:
         return textMuted;
+    }
+  }
+
+  String _localizedStatus(dynamic status) {
+    switch (status?.toString().toLowerCase()) {
+      case 'confirmed':
+        return _tr('status_confirmed');
+      case 'completed':
+        return _tr('status_completed');
+      case 'cancelled':
+      case 'canceled':
+        return _tr('status_cancelled');
+      case 'pending':
+        return _tr('status_pending');
+      default:
+        return _tr('status_unknown');
     }
   }
 
@@ -364,24 +331,18 @@ final session =
       ..showSnackBar(
         SnackBar(
           content: Text(message),
-          backgroundColor:
-              isError
-                  ? Colors.red
-                  : darkBrown,
+          backgroundColor: isError ? Colors.red : darkBrown,
         ),
       );
   }
 
   void _showLoadingDialog() {
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) {
-        return const Center(
-          child:
-              CircularProgressIndicator(),
-        );
-      },
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(),
+      ),
     );
   }
 
@@ -390,70 +351,47 @@ final session =
   // ============================================================
 
   @override
-  Widget build(
-    BuildContext context,
-  ) {
+  Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor:
-          background,
-
+      backgroundColor: background,
       appBar: AppBar(
-        backgroundColor:
-            darkBrown,
-        foregroundColor:
-            Colors.white,
+        backgroundColor: darkBrown,
+        foregroundColor: Colors.white,
         elevation: 0,
-        title: const Text(
-          'My Appointments',
-          style: TextStyle(
-            fontWeight:
-                FontWeight.w800,
+        title: Text(
+          _tr('my_appointments'),
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
           ),
         ),
         actions: [
+          const LanguageToggleButton(),
           IconButton(
-            tooltip: 'Refresh',
-            onPressed:
-                _loading
-                    ? null
-                    : _loadAppointments,
-            icon: const Icon(
-              Icons.refresh_rounded,
-            ),
+            tooltip: _tr('refresh'),
+            onPressed: _loading ? null : _loadAppointments,
+            icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
-
       body: _loading
           ? const Center(
-              child:
-                  CircularProgressIndicator(),
+              child: CircularProgressIndicator(),
             )
           : _error != null
               ? _buildErrorState()
               : RefreshIndicator(
-                  onRefresh:
-                      _loadAppointments,
-                  child:
-                      _buildBody(),
+                  onRefresh: _loadAppointments,
+                  child: _buildBody(),
                 ),
-
-      floatingActionButton:
-          FloatingActionButton.extended(
-        onPressed:
-            _openScheduleScreen,
-        backgroundColor:
-            darkBrown,
-        foregroundColor:
-            Colors.white,
-        icon: const Icon(
-          Icons.add_rounded,
-        ),
-        label: const Text(
-          'Schedule Appointment',
-          style: TextStyle(
-            fontWeight:
-                FontWeight.w800,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _openScheduleScreen,
+        backgroundColor: darkBrown,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add_rounded),
+        label: Text(
+          _tr('schedule_appointment'),
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
           ),
         ),
       ),
@@ -467,120 +405,67 @@ final session =
   Widget _buildBody() {
     if (_appointments.isEmpty) {
       return ListView(
-        padding:
-            const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(20),
         children: [
-          const SizedBox(
-            height: 100,
-          ),
+          const SizedBox(height: 100),
           _buildEmptyState(),
         ],
       );
     }
 
-    final upcoming =
-        _appointments.where(
-      (item) {
-        if (item is! Map) {
-          return false;
-        }
+    final upcoming = _appointments.where((item) {
+      if (item is! Map) return false;
 
-        final appointment =
-            Map<String, dynamic>.from(
-          item,
-        );
+      final appointment = Map<String, dynamic>.from(item);
 
-        return !_isPast(
-              appointment[
-                  'scheduledAt'],
-            ) &&
-            !_isCancelled(
-              appointment[
-                  'status'],
-            );
-      },
-    ).toList();
+      return !_isPast(appointment['scheduledAt']) &&
+          !_isCancelled(appointment['status']);
+    }).toList();
 
-    final previous =
-        _appointments.where(
-      (item) {
-        if (item is! Map) {
-          return false;
-        }
+    final previous = _appointments.where((item) {
+      if (item is! Map) return false;
 
-        final appointment =
-            Map<String, dynamic>.from(
-          item,
-        );
+      final appointment = Map<String, dynamic>.from(item);
 
-        return _isPast(
-              appointment[
-                  'scheduledAt'],
-            ) ||
-            _isCancelled(
-              appointment[
-                  'status'],
-            );
-      },
-    ).toList();
+      return _isPast(appointment['scheduledAt']) ||
+          _isCancelled(appointment['status']);
+    }).toList();
 
     return ListView(
-      padding:
-          const EdgeInsets.fromLTRB(
-        16,
-        18,
-        16,
-        100,
-      ),
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 100),
       children: [
         _buildInfoBanner(),
-
         if (upcoming.isNotEmpty) ...[
           const SizedBox(height: 22),
-
-          const Text(
-            'Upcoming Appointments',
-            style: TextStyle(
+          Text(
+            _tr('upcoming_appointments'),
+            style: const TextStyle(
               color: textDark,
               fontSize: 19,
-              fontWeight:
-                  FontWeight.w900,
+              fontWeight: FontWeight.w900,
             ),
           ),
-
           const SizedBox(height: 12),
-
           ...upcoming.map(
-            (item) =>
-                _buildAppointmentCard(
-              Map<String, dynamic>.from(
-                item as Map,
-              ),
+            (item) => _buildAppointmentCard(
+              Map<String, dynamic>.from(item as Map),
             ),
           ),
         ],
-
         if (previous.isNotEmpty) ...[
           const SizedBox(height: 22),
-
-          const Text(
-            'Previous Appointments',
-            style: TextStyle(
+          Text(
+            _tr('previous_appointments'),
+            style: const TextStyle(
               color: textDark,
               fontSize: 19,
-              fontWeight:
-                  FontWeight.w900,
+              fontWeight: FontWeight.w900,
             ),
           ),
-
           const SizedBox(height: 12),
-
           ...previous.map(
-            (item) =>
-                _buildAppointmentCard(
-              Map<String, dynamic>.from(
-                item as Map,
-              ),
+            (item) => _buildAppointmentCard(
+              Map<String, dynamic>.from(item as Map),
             ),
           ),
         ],
@@ -594,21 +479,16 @@ final session =
 
   Widget _buildInfoBanner() {
     return Container(
-      padding:
-          const EdgeInsets.all(15),
+      padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
-        color:
-            darkBrown.withOpacity(.07),
-        borderRadius:
-            BorderRadius.circular(15),
+        color: darkBrown.withOpacity(.07),
+        borderRadius: BorderRadius.circular(15),
         border: Border.all(
-          color:
-              darkBrown.withOpacity(.12),
+          color: darkBrown.withOpacity(.12),
         ),
       ),
       child: Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Icon(
             Icons.video_call_rounded,
@@ -618,23 +498,20 @@ final session =
           const SizedBox(width: 11),
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Nutrition Consultation',
-                  style: TextStyle(
+                Text(
+                  _tr('nutrition_consultation'),
+                  style: const TextStyle(
                     color: textDark,
-                    fontWeight:
-                        FontWeight.w800,
+                    fontWeight: FontWeight.w800,
                     fontSize: 13,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Schedule a consultation with an approved nutritionist. '
-                  'The video meeting becomes available at the scheduled time.',
-                  style: TextStyle(
+                  _tr('nutrition_consultation_description'),
+                  style: const TextStyle(
                     color: textMuted,
                     fontSize: 11.5,
                     height: 1.4,
@@ -655,119 +532,63 @@ final session =
   Widget _buildAppointmentCard(
     Map<String, dynamic> appointment,
   ) {
-    final status =
-        appointment['status'];
+    final status = appointment['status'];
+    final statusText = _localizedStatus(status);
+    final statusColor = _statusColor(status);
+    final scheduledAt = appointment['scheduledAt'];
+    final past = _isPast(scheduledAt);
+    final cancelled = _isCancelled(status);
 
-    final statusText =
-        status
-                ?.toString()
-                .toUpperCase() ??
-            'UNKNOWN';
-
-    final statusColor =
-        _statusColor(status);
-
-    final scheduledAt =
-        appointment[
-            'scheduledAt'];
-
-    final past =
-        _isPast(scheduledAt);
-
-    final cancelled =
-        _isCancelled(status);
-
-    final appointmentId =
-        appointment['id']
-                ?.toString() ??
-            '-';
+    final appointmentId = appointment['id']?.toString() ?? '-';
 
     String nutritionistName =
-        appointment[
-                    'nutritionistName']
-                ?.toString() ??
-            'Nutritionist';
+        appointment['nutritionistName']?.toString() ??
+        _tr('nutritionist');
 
     String nutritionistEmail =
-        appointment[
-                    'nutritionistEmail']
-                ?.toString() ??
-            '';
+        appointment['nutritionistEmail']?.toString() ?? '';
 
-    final nutritionist =
-        appointment[
-            'nutritionist'];
+    final nutritionist = appointment['nutritionist'];
 
     if (nutritionist is Map) {
       nutritionistName =
-          nutritionist['name']
-                  ?.toString() ??
-              nutritionist[
-                      'userName']
-                  ?.toString() ??
-              nutritionistName;
+          nutritionist['name']?.toString() ??
+          nutritionist['userName']?.toString() ??
+          nutritionistName;
 
       nutritionistEmail =
-          nutritionist['email']
-                  ?.toString() ??
-              nutritionistEmail;
+          nutritionist['email']?.toString() ??
+          nutritionistEmail;
     }
 
-    final notes =
-        appointment['notes']
-                ?.toString() ??
-            '';
-
-    final canJoin =
-        !past && !cancelled;
+    final notes = appointment['notes']?.toString() ?? '';
+    final canJoin = !past && !cancelled;
 
     return Container(
-      margin:
-          const EdgeInsets.only(
-        bottom: 13,
-      ),
-      padding:
-          const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 13),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(17),
-        border: Border.all(
-          color: borderColor,
-        ),
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: borderColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black
-                .withOpacity(.035),
+            color: Colors.black.withOpacity(.035),
             blurRadius: 12,
-            offset:
-                const Offset(0, 4),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ------------------------------------------------------
-          // HEADER
-          // ------------------------------------------------------
-
           Row(
             children: [
               Container(
-                padding:
-                    const EdgeInsets.all(
-                  10,
-                ),
-                decoration:
-                    BoxDecoration(
-                  color: darkBrown
-                      .withOpacity(.08),
-                  borderRadius:
-                      BorderRadius.circular(
-                    12,
-                  ),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: darkBrown.withOpacity(.08),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.person_rounded,
@@ -775,41 +596,26 @@ final session =
                   size: 23,
                 ),
               ),
-
-              const SizedBox(
-                width: 11,
-              ),
-
+              const SizedBox(width: 11),
               Expanded(
                 child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment
-                          .start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       nutritionistName,
-                      style:
-                          const TextStyle(
+                      style: const TextStyle(
                         color: textDark,
                         fontSize: 15.5,
-                        fontWeight:
-                            FontWeight.w800,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                    if (nutritionistEmail
-                        .isNotEmpty)
+                    if (nutritionistEmail.isNotEmpty)
                       Padding(
-                        padding:
-                            const EdgeInsets
-                                .only(
-                          top: 3,
-                        ),
+                        padding: const EdgeInsets.only(top: 3),
                         child: Text(
                           nutritionistEmail,
-                          style:
-                              const TextStyle(
-                            color:
-                                textMuted,
+                          style: const TextStyle(
+                            color: textMuted,
                             fontSize: 11,
                           ),
                         ),
@@ -817,100 +623,61 @@ final session =
                   ],
                 ),
               ),
-
               Container(
-                padding:
-                    const EdgeInsets
-                        .symmetric(
+                padding: const EdgeInsets.symmetric(
                   horizontal: 9,
                   vertical: 5,
                 ),
-                decoration:
-                    BoxDecoration(
-                  color: statusColor
-                      .withOpacity(.10),
-                  borderRadius:
-                      BorderRadius.circular(
-                    20,
-                  ),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(.10),
+                  borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
                   statusText,
                   style: TextStyle(
-                    color:
-                        statusColor,
+                    color: statusColor,
                     fontSize: 9,
-                    fontWeight:
-                        FontWeight.w800,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
             ],
           ),
-
-          const SizedBox(
-            height: 15,
-          ),
-
-          // ------------------------------------------------------
-          // DATE/TIME
-          // ------------------------------------------------------
-
+          const SizedBox(height: 15),
           Container(
             width: double.infinity,
-            padding:
-                const EdgeInsets.all(
-              12,
-            ),
-            decoration:
-                BoxDecoration(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
               color: background,
-              borderRadius:
-                  BorderRadius.circular(
-                12,
-              ),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
               children: [
                 const Icon(
-                  Icons
-                      .calendar_month_rounded,
+                  Icons.calendar_month_rounded,
                   color: brown,
                   size: 20,
                 ),
-                const SizedBox(
-                  width: 9,
-                ),
+                const SizedBox(width: 9),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment
-                            .start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Appointment time',
-                        style: TextStyle(
-                          color:
-                              textMuted,
-                          fontSize: 10,
-                          fontWeight:
-                              FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(
-                        height: 2,
-                      ),
                       Text(
-                        _formatDate(
-                          scheduledAt,
+                        _tr('appointment_time'),
+                        style: const TextStyle(
+                          color: textMuted,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
                         ),
-                        style:
-                            const TextStyle(
-                          color:
-                              textDark,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _formatDate(scheduledAt),
+                        style: const TextStyle(
+                          color: textDark,
                           fontSize: 13,
-                          fontWeight:
-                              FontWeight.w800,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                     ],
@@ -919,101 +686,56 @@ final session =
               ],
             ),
           ),
-
-          // ------------------------------------------------------
-          // NOTES
-          // ------------------------------------------------------
-
           if (notes.isNotEmpty) ...[
-            const SizedBox(
-              height: 12,
-            ),
-            const Text(
-              'Notes',
-              style: TextStyle(
+            const SizedBox(height: 12),
+            Text(
+              _tr('notes'),
+              style: const TextStyle(
                 color: textDark,
                 fontSize: 12,
-                fontWeight:
-                    FontWeight.w800,
+                fontWeight: FontWeight.w800,
               ),
             ),
-            const SizedBox(
-              height: 4,
-            ),
+            const SizedBox(height: 4),
             Text(
               notes,
-              style:
-                  const TextStyle(
+              style: const TextStyle(
                 color: textMuted,
                 fontSize: 12,
                 height: 1.4,
               ),
             ),
           ],
-
-          // ------------------------------------------------------
-          // VIDEO BUTTON
-          // ------------------------------------------------------
-
           if (canJoin) ...[
-            const SizedBox(
-              height: 14,
-            ),
-
+            const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
-              child:
-                  ElevatedButton.icon(
-                onPressed: () {
-                  _joinVideoConsultation(
-                    appointment,
-                  );
-                },
+              child: ElevatedButton.icon(
+                onPressed: () => _joinVideoConsultation(appointment),
                 icon: const Icon(
                   Icons.video_call_rounded,
                   size: 19,
                 ),
-                label: const Text(
-                  'JOIN VIDEO CONSULTATION',
-                ),
-                style:
-                    ElevatedButton
-                        .styleFrom(
-                  backgroundColor:
-                      darkBrown,
-                  foregroundColor:
-                      Colors.white,
+                label: Text(_tr('join_video_consultation')),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: darkBrown,
+                  foregroundColor: Colors.white,
                   elevation: 0,
-                  padding:
-                      const EdgeInsets
-                          .symmetric(
-                    vertical: 13,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  shape:
-                      RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius
-                            .circular(
-                      12,
-                    ),
-                  ),
-                  textStyle:
-                      const TextStyle(
-                    fontWeight:
-                        FontWeight.w800,
+                  textStyle: const TextStyle(
+                    fontWeight: FontWeight.w800,
                     fontSize: 11.5,
                   ),
                 ),
               ),
             ),
           ],
-
-          const SizedBox(
-            height: 10,
-          ),
-
+          const SizedBox(height: 10),
           Text(
-            'Appointment ID: $appointmentId',
+            '${_tr('appointment_id')}: $appointmentId',
             style: const TextStyle(
               color: textMuted,
               fontSize: 10,
@@ -1033,82 +755,51 @@ final session =
     return Column(
       children: [
         Container(
-          padding:
-              const EdgeInsets.all(22),
+          padding: const EdgeInsets.all(22),
           decoration: BoxDecoration(
-            color: darkBrown
-                .withOpacity(.07),
+            color: darkBrown.withOpacity(.07),
             shape: BoxShape.circle,
           ),
           child: const Icon(
-            Icons
-                .calendar_month_rounded,
+            Icons.calendar_month_rounded,
             color: darkBrown,
             size: 44,
           ),
         ),
-
-        const SizedBox(
-          height: 17,
-        ),
-
-        const Text(
-          'No appointments yet',
-          style: TextStyle(
+        const SizedBox(height: 17),
+        Text(
+          _tr('no_appointments_yet'),
+          style: const TextStyle(
             color: textDark,
             fontSize: 19,
-            fontWeight:
-                FontWeight.w900,
+            fontWeight: FontWeight.w900,
           ),
         ),
-
-        const SizedBox(
-          height: 7,
-        ),
-
-        const Text(
-          'Schedule a consultation with a nutritionist to get started.',
-          textAlign:
-              TextAlign.center,
-          style: TextStyle(
+        const SizedBox(height: 7),
+        Text(
+          _tr('schedule_consultation_to_start'),
+          textAlign: TextAlign.center,
+          style: const TextStyle(
             color: textMuted,
             fontSize: 12,
             height: 1.4,
           ),
         ),
-
-        const SizedBox(
-          height: 20,
-        ),
-
+        const SizedBox(height: 20),
         ElevatedButton.icon(
-          onPressed:
-              _openScheduleScreen,
-          icon: const Icon(
-            Icons.add_rounded,
-          ),
-          label: const Text(
-            'Schedule Appointment',
-          ),
-          style:
-              ElevatedButton.styleFrom(
-            backgroundColor:
-                darkBrown,
-            foregroundColor:
-                Colors.white,
+          onPressed: _openScheduleScreen,
+          icon: const Icon(Icons.add_rounded),
+          label: Text(_tr('schedule_appointment')),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: darkBrown,
+            foregroundColor: Colors.white,
             elevation: 0,
-            padding:
-                const EdgeInsets
-                    .symmetric(
+            padding: const EdgeInsets.symmetric(
               horizontal: 20,
               vertical: 13,
             ),
-            shape:
-                RoundedRectangleBorder(
-              borderRadius:
-                  BorderRadius.circular(
-                12,
-              ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
             ),
           ),
         ),
@@ -1123,71 +814,42 @@ final session =
   Widget _buildErrorState() {
     return Center(
       child: Padding(
-        padding:
-            const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisSize:
-              MainAxisSize.min,
+          mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(
-              Icons
-                  .error_outline_rounded,
+              Icons.error_outline_rounded,
               color: Colors.red,
               size: 50,
             ),
-
-            const SizedBox(
-              height: 14,
-            ),
-
-            const Text(
-              'Unable to load appointments',
-              textAlign:
-                  TextAlign.center,
-              style: TextStyle(
+            const SizedBox(height: 14),
+            Text(
+              _tr('unable_to_load_appointments'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
                 color: textDark,
                 fontSize: 17,
-                fontWeight:
-                    FontWeight.w800,
+                fontWeight: FontWeight.w800,
               ),
             ),
-
-            const SizedBox(
-              height: 8,
-            ),
-
+            const SizedBox(height: 8),
             Text(
-              _error ??
-                  'Unknown error.',
-              textAlign:
-                  TextAlign.center,
-              style:
-                  const TextStyle(
+              _error ?? _tr('unknown_error'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
                 color: textMuted,
                 fontSize: 12,
               ),
             ),
-
-            const SizedBox(
-              height: 17,
-            ),
-
+            const SizedBox(height: 17),
             ElevatedButton.icon(
-              onPressed:
-                  _loadAppointments,
-              icon: const Icon(
-                Icons.refresh_rounded,
-              ),
-              label: const Text(
-                'Try Again',
-              ),
-              style:
-                  ElevatedButton
-                      .styleFrom(
-                backgroundColor:
-                    darkBrown,
-                foregroundColor:
-                    Colors.white,
+              onPressed: _loadAppointments,
+              icon: const Icon(Icons.refresh_rounded),
+              label: Text(_tr('try_again')),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: darkBrown,
+                foregroundColor: Colors.white,
               ),
             ),
           ],
@@ -1201,74 +863,58 @@ final session =
 // SCHEDULE APPOINTMENT SCREEN
 // ==================================================================
 
-class ScheduleAppointmentScreen
-    extends StatefulWidget {
-  const ScheduleAppointmentScreen({
-    super.key,
-  });
+class ScheduleAppointmentScreen extends StatefulWidget {
+  const ScheduleAppointmentScreen({super.key});
 
   @override
-  State<ScheduleAppointmentScreen>
-      createState() =>
-          _ScheduleAppointmentScreenState();
+  State<ScheduleAppointmentScreen> createState() =>
+      _ScheduleAppointmentScreenState();
 }
 
 class _ScheduleAppointmentScreenState
-    extends State<
-        ScheduleAppointmentScreen> {
-  bool _loadingNutritionists =
-      true;
-
+    extends State<ScheduleAppointmentScreen> {
+  bool _loadingNutritionists = true;
   bool _loadingSlots = false;
-
   bool _booking = false;
 
   String? _error;
 
-  List<dynamic>
-      _nutritionists = [];
+  List<dynamic> _nutritionists = [];
+  Map<String, dynamic>? _selectedNutritionist;
 
-  Map<String, dynamic>?
-      _selectedNutritionist;
-
-  DateTime _selectedDate =
-      DateTime.now();
-
+  DateTime _selectedDate = DateTime.now();
   String? _selectedTime;
-
   List<String> _availableSlots = [];
 
-  final TextEditingController
-      _notesController =
+  final TextEditingController _notesController =
       TextEditingController();
 
-  static const Color darkBrown =
-      Color(0xFF4A2C1A);
+  late final AppLocalization _localization;
 
-  static const Color brown =
-      Color(0xFF6B4226);
-
-  static const Color background =
-      Color(0xFFF8F5F1);
-
-  static const Color textDark =
-      Color(0xFF2D211B);
-
-  static const Color textMuted =
-      Color(0xFF7A6D65);
-
-  static const Color borderColor =
-      Color(0xFFE5DDD6);
+  static const Color darkBrown = Color(0xFF4A2C1A);
+  static const Color brown = Color(0xFF6B4226);
+  static const Color background = Color(0xFFF8F5F1);
+  static const Color textDark = Color(0xFF2D211B);
+  static const Color textMuted = Color(0xFF7A6D65);
+  static const Color borderColor = Color(0xFFE5DDD6);
 
   @override
   void initState() {
     super.initState();
 
+    _localization = AppLocalization.instance;
+    _localization.addListener(_onLanguageChanged);
+
     _loadNutritionists();
+  }
+
+  void _onLanguageChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    _localization.removeListener(_onLanguageChanged);
     _notesController.dispose();
     super.dispose();
   }
@@ -1277,45 +923,33 @@ class _ScheduleAppointmentScreenState
   // LOAD NUTRITIONISTS
   // ============================================================
 
-  Future<void>
-      _loadNutritionists() async {
+  Future<void> _loadNutritionists() async {
     try {
-      final response =
-          await ApiClient.get(
+      final response = await ApiClient.get(
         '/supervision/nutritionists',
       );
 
       if (!mounted) return;
 
       if (response is Map) {
-        final data =
-            response['nutritionists'];
+        final data = response['nutritionists'];
 
         if (data is List) {
-          _nutritionists =
-              List<dynamic>.from(
-            data,
-          );
+          _nutritionists = List<dynamic>.from(data);
         }
       } else if (response is List) {
-        _nutritionists =
-            List<dynamic>.from(
-          response,
-        );
+        _nutritionists = List<dynamic>.from(response);
       }
 
       setState(() {
-        _loadingNutritionists =
-            false;
+        _loadingNutritionists = false;
       });
     } catch (e) {
       if (!mounted) return;
 
       setState(() {
-        _loadingNutritionists =
-            false;
-        _error =
-            _cleanError(e);
+        _loadingNutritionists = false;
+        _error = _cleanError(e);
       });
     }
   }
@@ -1324,21 +958,14 @@ class _ScheduleAppointmentScreenState
   // LOAD AVAILABLE TIME SLOTS
   // ============================================================
 
-  Future<void>
-      _loadAvailableSlots() async {
-    final nutritionist =
-        _selectedNutritionist;
+  Future<void> _loadAvailableSlots() async {
+    final nutritionist = _selectedNutritionist;
 
-    if (nutritionist == null) {
-      return;
-    }
+    if (nutritionist == null) return;
 
-    final nutritionistId =
-        nutritionist['id']
-            ?.toString();
+    final nutritionistId = nutritionist['id']?.toString();
 
-    if (nutritionistId == null ||
-        nutritionistId.isEmpty) {
+    if (nutritionistId == null || nutritionistId.isEmpty) {
       return;
     }
 
@@ -1354,34 +981,20 @@ class _ScheduleAppointmentScreenState
           '${_selectedDate.month.toString().padLeft(2, '0')}-'
           '${_selectedDate.day.toString().padLeft(2, '0')}';
 
-      final response =
-          await ApiClient.get(
+      final response = await ApiClient.get(
         '/supervision/nutritionists/$nutritionistId/availability?date=$date',
       );
 
       if (!mounted) return;
 
       if (response is Map) {
-        final slots =
-            response['availableSlots'];
+        final slots = response['availableSlots'];
 
         if (slots is List) {
-          _availableSlots =
-              slots
-                  .map(
-                    (slot) =>
-                        slot.toString(),
-                  )
-                  .toList();
+          _availableSlots = slots.map((slot) => slot.toString()).toList();
         }
       } else if (response is List) {
-        _availableSlots =
-            response
-                .map(
-                  (slot) =>
-                      slot.toString(),
-                )
-                .toList();
+        _availableSlots = response.map((slot) => slot.toString()).toList();
       }
 
       setState(() {
@@ -1395,7 +1008,7 @@ class _ScheduleAppointmentScreenState
       });
 
       _showSnackBar(
-        'Unable to load available times: ${_cleanError(e)}',
+        '${_tr('unable_to_load_available_times')}: ${_cleanError(e)}',
         isError: true,
       );
     }
@@ -1406,39 +1019,23 @@ class _ScheduleAppointmentScreenState
   // ============================================================
 
   Future<void> _selectDate() async {
-    final today =
-        DateTime.now();
+    final today = DateTime.now();
 
-    final picked =
-        await showDatePicker(
+    final picked = await showDatePicker(
       context: context,
-      initialDate:
-          _selectedDate.isBefore(
-        DateTime(
-          today.year,
-          today.month,
-          today.day,
-        ),
+      initialDate: _selectedDate.isBefore(
+        DateTime(today.year, today.month, today.day),
       )
-              ? today
-              : _selectedDate,
-      firstDate:
-          DateTime(
-        today.year,
-        today.month,
-        today.day,
-      ),
-      lastDate:
-          DateTime(
-        today.year + 1,
-        today.month,
-        today.day,
-      ),
+          ? today
+          : _selectedDate,
+      firstDate: DateTime(today.year, today.month, today.day),
+      lastDate: DateTime(today.year + 1, today.month, today.day),
+      helpText: _tr('select_appointment_date'),
+      cancelText: _tr('cancel'),
+      confirmText: _tr('confirm'),
     );
 
-    if (picked == null) {
-      return;
-    }
+    if (picked == null || !mounted) return;
 
     setState(() {
       _selectedDate = picked;
@@ -1452,70 +1049,57 @@ class _ScheduleAppointmentScreenState
   // BOOK APPOINTMENT
   // ============================================================
 
-  Future<void>
-      _bookAppointment() async {
-    final nutritionist =
-        _selectedNutritionist;
+  Future<void> _bookAppointment() async {
+    final nutritionist = _selectedNutritionist;
 
     if (nutritionist == null) {
       _showSnackBar(
-        'Please select a nutritionist.',
+        _tr('please_select_nutritionist'),
         isError: true,
       );
       return;
     }
 
-    if (_selectedTime == null ||
-        _selectedTime!.isEmpty) {
+    if (_selectedTime == null || _selectedTime!.isEmpty) {
       _showSnackBar(
-        'Please select an available time.',
+        _tr('please_select_available_time'),
         isError: true,
       );
       return;
     }
 
-    final nutritionistId =
-        nutritionist['id']
-            ?.toString();
+    final nutritionistId = nutritionist['id']?.toString();
 
-    if (nutritionistId == null ||
-        nutritionistId.isEmpty) {
+    if (nutritionistId == null || nutritionistId.isEmpty) {
       _showSnackBar(
-        'Nutritionist ID is missing.',
+        _tr('nutritionist_id_missing'),
         isError: true,
       );
       return;
     }
 
-    final parts =
-        _selectedTime!
-            .split(':');
+    final parts = _selectedTime!.split(':');
 
     if (parts.length != 2) {
       _showSnackBar(
-        'Invalid appointment time.',
+        _tr('appointment_time_invalid'),
         isError: true,
       );
       return;
     }
 
-    final hour =
-        int.tryParse(parts[0]);
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
 
-    final minute =
-        int.tryParse(parts[1]);
-
-    if (hour == null ||
-        minute == null) {
+    if (hour == null || minute == null) {
       _showSnackBar(
-        'Invalid appointment time.',
+        _tr('appointment_time_invalid'),
         isError: true,
       );
       return;
     }
 
-    final scheduledAt =
-        DateTime(
+    final scheduledAt = DateTime(
       _selectedDate.year,
       _selectedDate.month,
       _selectedDate.day,
@@ -1523,11 +1107,9 @@ class _ScheduleAppointmentScreenState
       minute,
     );
 
-    if (!scheduledAt.isAfter(
-      DateTime.now(),
-    )) {
+    if (!scheduledAt.isAfter(DateTime.now())) {
       _showSnackBar(
-        'Please select a future time.',
+        _tr('please_select_future_time'),
         isError: true,
       );
       return;
@@ -1541,41 +1123,28 @@ class _ScheduleAppointmentScreenState
       await ApiClient.post(
         '/supervision/appointments',
         {
-          'nutritionistId':
-              nutritionistId,
-          'scheduledAt':
-              scheduledAt
-                  .toUtc()
-                  .toIso8601String(),
-          'notes':
-              _notesController.text
-                  .trim(),
+          'nutritionistId': nutritionistId,
+          'scheduledAt': scheduledAt.toUtc().toIso8601String(),
+          'notes': _notesController.text.trim(),
         },
       );
 
       if (!mounted) return;
 
       _showSnackBar(
-        'Appointment scheduled successfully.',
+        _tr('appointment_scheduled_successfully'),
       );
 
-      await Future.delayed(
-        const Duration(
-          milliseconds: 600,
-        ),
-      );
+      await Future.delayed(const Duration(milliseconds: 600));
 
       if (!mounted) return;
 
-      Navigator.pop(
-        context,
-        true,
-      );
+      Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
 
       _showSnackBar(
-        'Unable to schedule appointment: ${_cleanError(e)}',
+        '${_tr('unable_to_schedule_appointment')}: ${_cleanError(e)}',
         isError: true,
       );
     } finally {
@@ -1591,17 +1160,11 @@ class _ScheduleAppointmentScreenState
   // HELPERS
   // ============================================================
 
-  String _cleanError(
-    dynamic error,
-  ) {
-    String message =
-        error.toString();
+  String _cleanError(dynamic error) {
+    String message = error.toString();
 
-    if (message.startsWith(
-      'Exception:',
-    )) {
-      message =
-          message.substring(10).trim();
+    if (message.startsWith('Exception:')) {
+      message = message.substring(10).trim();
     }
 
     return message;
@@ -1624,10 +1187,7 @@ class _ScheduleAppointmentScreenState
       ..showSnackBar(
         SnackBar(
           content: Text(message),
-          backgroundColor:
-              isError
-                  ? Colors.red
-                  : darkBrown,
+          backgroundColor: isError ? Colors.red : darkBrown,
         ),
       );
   }
@@ -1637,32 +1197,26 @@ class _ScheduleAppointmentScreenState
   // ============================================================
 
   @override
-  Widget build(
-    BuildContext context,
-  ) {
+  Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor:
-          background,
-
+      backgroundColor: background,
       appBar: AppBar(
-        backgroundColor:
-            darkBrown,
-        foregroundColor:
-            Colors.white,
+        backgroundColor: darkBrown,
+        foregroundColor: Colors.white,
         elevation: 0,
-        title: const Text(
-          'Schedule Appointment',
-          style: TextStyle(
-            fontWeight:
-                FontWeight.w800,
+        title: Text(
+          _tr('schedule_appointment'),
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
           ),
         ),
+        actions: const [
+          LanguageToggleButton(),
+        ],
       ),
-
       body: _loadingNutritionists
           ? const Center(
-              child:
-                  CircularProgressIndicator(),
+              child: CircularProgressIndicator(),
             )
           : _error != null
               ? _buildError()
@@ -1676,286 +1230,154 @@ class _ScheduleAppointmentScreenState
 
   Widget _buildForm() {
     return SingleChildScrollView(
-      padding:
-          const EdgeInsets.fromLTRB(
-        16,
-        18,
-        16,
-        30,
-      ),
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Choose a Nutritionist',
-            style: TextStyle(
+          Text(
+            _tr('choose_nutritionist'),
+            style: const TextStyle(
               color: textDark,
               fontSize: 18,
-              fontWeight:
-                  FontWeight.w900,
+              fontWeight: FontWeight.w900,
             ),
           ),
-
-          const SizedBox(
-            height: 10,
-          ),
-
+          const SizedBox(height: 10),
           if (_nutritionists.isEmpty)
             _buildNoNutritionists()
           else
             ..._nutritionists.map(
-              (item) =>
-                  _buildNutritionistCard(
-                Map<String, dynamic>.from(
-                  item as Map,
-                ),
+              (item) => _buildNutritionistCard(
+                Map<String, dynamic>.from(item as Map),
               ),
             ),
-
-          if (_selectedNutritionist !=
-              null) ...[
-            const SizedBox(
-              height: 22,
-            ),
-
-            const Text(
-              'Select Date',
-              style: TextStyle(
+          if (_selectedNutritionist != null) ...[
+            const SizedBox(height: 22),
+            Text(
+              _tr('select_date'),
+              style: const TextStyle(
                 color: textDark,
                 fontSize: 18,
-                fontWeight:
-                    FontWeight.w900,
+                fontWeight: FontWeight.w900,
               ),
             ),
-
-            const SizedBox(
-              height: 10,
-            ),
-
+            const SizedBox(height: 10),
             InkWell(
               onTap: _selectDate,
-              borderRadius:
-                  BorderRadius.circular(
-                14,
-              ),
+              borderRadius: BorderRadius.circular(14),
               child: Container(
-                width:
-                    double.infinity,
-                padding:
-                    const EdgeInsets
-                        .all(
-                  15,
-                ),
-                decoration:
-                    BoxDecoration(
-                  color:
-                      Colors.white,
-                  borderRadius:
-                      BorderRadius
-                          .circular(
-                    14,
-                  ),
-                  border: Border.all(
-                    color:
-                        borderColor,
-                  ),
+                width: double.infinity,
+                padding: const EdgeInsets.all(15),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: borderColor),
                 ),
                 child: Row(
                   children: [
                     const Icon(
-                      Icons
-                          .calendar_month_rounded,
+                      Icons.calendar_month_rounded,
                       color: darkBrown,
                     ),
-                    const SizedBox(
-                      width: 11,
-                    ),
+                    const SizedBox(width: 11),
                     Expanded(
                       child: Text(
                         _formatSelectedDate(),
-                        style:
-                            const TextStyle(
-                          color:
-                              textDark,
+                        style: const TextStyle(
+                          color: textDark,
                           fontSize: 14,
-                          fontWeight:
-                              FontWeight.w700,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
                     const Icon(
-                      Icons
-                          .arrow_drop_down_rounded,
-                      color:
-                          textMuted,
+                      Icons.arrow_drop_down_rounded,
+                      color: textMuted,
                     ),
                   ],
                 ),
               ),
             ),
-
-            const SizedBox(
-              height: 22,
-            ),
-
-            const Text(
-              'Available Times',
-              style: TextStyle(
+            const SizedBox(height: 22),
+            Text(
+              _tr('available_times'),
+              style: const TextStyle(
                 color: textDark,
                 fontSize: 18,
-                fontWeight:
-                    FontWeight.w900,
+                fontWeight: FontWeight.w900,
               ),
             ),
-
-            const SizedBox(
-              height: 6,
-            ),
-
-            const Text(
-              'Each consultation is 30 minutes.',
-              style: TextStyle(
+            const SizedBox(height: 6),
+            Text(
+              _tr('consultation_duration'),
+              style: const TextStyle(
                 color: textMuted,
                 fontSize: 11.5,
               ),
             ),
-
-            const SizedBox(
-              height: 11,
-            ),
-
+            const SizedBox(height: 11),
             _buildTimeSlots(),
-
-            const SizedBox(
-              height: 22,
-            ),
-
-            const Text(
-              'Notes (Optional)',
-              style: TextStyle(
+            const SizedBox(height: 22),
+            Text(
+              _tr('notes_optional'),
+              style: const TextStyle(
                 color: textDark,
                 fontSize: 18,
-                fontWeight:
-                    FontWeight.w900,
+                fontWeight: FontWeight.w900,
               ),
             ),
-
-            const SizedBox(
-              height: 10,
-            ),
-
+            const SizedBox(height: 10),
             TextField(
-              controller:
-                  _notesController,
+              controller: _notesController,
               maxLines: 4,
-              decoration:
-                  InputDecoration(
-                hintText:
-                    'Tell the nutritionist what you would like to discuss...',
+              decoration: InputDecoration(
+                hintText: _tr('nutritionist_notes_hint'),
                 filled: true,
-                fillColor:
-                    Colors.white,
-                border:
-                    OutlineInputBorder(
-                  borderRadius:
-                      BorderRadius
-                          .circular(
-                    14,
-                  ),
-                  borderSide:
-                      const BorderSide(
-                    color:
-                        borderColor,
-                  ),
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: borderColor),
                 ),
-                enabledBorder:
-                    OutlineInputBorder(
-                  borderRadius:
-                      BorderRadius
-                          .circular(
-                    14,
-                  ),
-                  borderSide:
-                      const BorderSide(
-                    color:
-                        borderColor,
-                  ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: borderColor),
                 ),
-                focusedBorder:
-                    OutlineInputBorder(
-                  borderRadius:
-                      BorderRadius
-                          .circular(
-                    14,
-                  ),
-                  borderSide:
-                      const BorderSide(
-                    color:
-                        darkBrown,
-                  ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: darkBrown),
                 ),
               ),
             ),
-
-            const SizedBox(
-              height: 22,
-            ),
-
+            const SizedBox(height: 22),
             SizedBox(
-              width:
-                  double.infinity,
-              child:
-                  ElevatedButton.icon(
-                onPressed:
-                    _booking
-                        ? null
-                        : _bookAppointment,
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _booking ? null : _bookAppointment,
                 icon: _booking
                     ? const SizedBox(
                         width: 18,
                         height: 18,
-                        child:
-                            CircularProgressIndicator(
+                        child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color:
-                              Colors.white,
+                          color: Colors.white,
                         ),
                       )
-                    : const Icon(
-                        Icons
-                            .check_circle_outline_rounded,
-                      ),
+                    : const Icon(Icons.check_circle_outline_rounded),
                 label: Text(
                   _booking
-                      ? 'SCHEDULING...'
-                      : 'CONFIRM APPOINTMENT',
+                      ? _tr('scheduling')
+                      : _tr('confirm_appointment'),
                 ),
-                style:
-                    ElevatedButton
-                        .styleFrom(
-                  backgroundColor:
-                      darkBrown,
-                  foregroundColor:
-                      Colors.white,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: darkBrown,
+                  foregroundColor: Colors.white,
                   elevation: 0,
-                  padding:
-                      const EdgeInsets
-                          .symmetric(
-                    vertical: 15,
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(13),
                   ),
-                  shape:
-                      RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius
-                            .circular(
-                      13,
-                    ),
-                  ),
-                  textStyle:
-                      const TextStyle(
-                    fontWeight:
-                        FontWeight.w800,
+                  textStyle: const TextStyle(
+                    fontWeight: FontWeight.w800,
                     fontSize: 12,
                   ),
                 ),
@@ -1974,52 +1396,25 @@ class _ScheduleAppointmentScreenState
   Widget _buildNutritionistCard(
     Map<String, dynamic> nutritionist,
   ) {
-    final id =
-        nutritionist['id']
-            ?.toString();
+    final id = nutritionist['id']?.toString();
 
     final selected =
-        _selectedNutritionist?['id']
-                ?.toString() ==
-            id;
+        _selectedNutritionist?['id']?.toString() == id;
 
     final name =
-        nutritionist['name']
-                ?.toString() ??
-            nutritionist[
-                    'userName']
-                ?.toString() ??
-            'Nutritionist';
+        nutritionist['name']?.toString() ??
+        nutritionist['userName']?.toString() ??
+        _tr('nutritionist');
 
-    final email =
-        nutritionist['email']
-                ?.toString() ??
-            '';
-
-    final bio =
-        nutritionist['bio']
-                ?.toString() ??
-            '';
-
-    final credentials =
-        nutritionist[
-                    'credentials']
-                ?.toString() ??
-            '';
-
-    final rate =
-        nutritionist[
-            'hourlyRateEtb'];
-
-    final specializations =
-        nutritionist[
-            'specializations'];
+    final credentials = nutritionist['credentials']?.toString() ?? '';
+    final bio = nutritionist['bio']?.toString() ?? '';
+    final rate = nutritionist['hourlyRateEtb'];
+    final specializations = nutritionist['specializations'];
 
     return GestureDetector(
       onTap: () {
         setState(() {
-          _selectedNutritionist =
-              nutritionist;
+          _selectedNutritionist = nutritionist;
           _selectedTime = null;
           _availableSlots = [];
         });
@@ -2027,190 +1422,111 @@ class _ScheduleAppointmentScreenState
         _loadAvailableSlots();
       },
       child: Container(
-        margin:
-            const EdgeInsets.only(
-          bottom: 11,
-        ),
-        padding:
-            const EdgeInsets.all(
-          15,
-        ),
-        decoration:
-            BoxDecoration(
+        margin: const EdgeInsets.only(bottom: 11),
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius:
-              BorderRadius.circular(
-            15,
-          ),
+          borderRadius: BorderRadius.circular(15),
           border: Border.all(
-            color: selected
-                ? darkBrown
-                : borderColor,
-            width:
-                selected ? 2 : 1,
+            color: selected ? darkBrown : borderColor,
+            width: selected ? 2 : 1,
           ),
         ),
         child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 CircleAvatar(
                   radius: 23,
-                  backgroundColor:
-                      darkBrown
-                          .withOpacity(
-                    .08,
-                  ),
-                  child:
-                      const Icon(
-                    Icons
-                        .person_rounded,
-                    color:
-                        darkBrown,
+                  backgroundColor: darkBrown.withOpacity(.08),
+                  child: const Icon(
+                    Icons.person_rounded,
+                    color: darkBrown,
                   ),
                 ),
-
-                const SizedBox(
-                  width: 11,
-                ),
-
+                const SizedBox(width: 11),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment
-                            .start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         name,
-                        style:
-                            const TextStyle(
-                          color:
-                              textDark,
-                          fontSize:
-                              15,
-                          fontWeight:
-                              FontWeight
-                                  .w800,
+                        style: const TextStyle(
+                          color: textDark,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
-                      if (credentials
-                          .isNotEmpty)
+                      if (credentials.isNotEmpty)
                         Padding(
-                          padding:
-                              const EdgeInsets
-                                  .only(
-                            top: 3,
-                          ),
+                          padding: const EdgeInsets.only(top: 3),
                           child: Text(
                             credentials,
-                            style:
-                                const TextStyle(
-                              color:
-                                  textMuted,
-                              fontSize:
-                                  10.5,
+                            style: const TextStyle(
+                              color: textMuted,
+                              fontSize: 10.5,
                             ),
                           ),
                         ),
                     ],
                   ),
                 ),
-
                 Icon(
                   selected
-                      ? Icons
-                          .check_circle_rounded
-                      : Icons
-                          .radio_button_unchecked,
-                  color:
-                      selected
-                          ? darkBrown
-                          : textMuted,
+                      ? Icons.check_circle_rounded
+                      : Icons.radio_button_unchecked,
+                  color: selected ? darkBrown : textMuted,
                 ),
               ],
             ),
-
             if (bio.isNotEmpty) ...[
-              const SizedBox(
-                height: 11,
-              ),
+              const SizedBox(height: 11),
               Text(
                 bio,
-                style:
-                    const TextStyle(
+                style: const TextStyle(
                   color: textMuted,
                   fontSize: 11.5,
                   height: 1.4,
                 ),
               ),
             ],
-
-            if (specializations
-                is List &&
-                specializations
-                    .isNotEmpty) ...[
-              const SizedBox(
-                height: 10,
-              ),
+            if (specializations is List &&
+                specializations.isNotEmpty) ...[
+              const SizedBox(height: 10),
               Wrap(
                 spacing: 6,
                 runSpacing: 6,
-                children:
-                    specializations
-                        .map(
-                          (item) =>
-                              Container(
-                            padding:
-                                const EdgeInsets
-                                    .symmetric(
-                              horizontal:
-                                  8,
-                              vertical:
-                                  5,
-                            ),
-                            decoration:
-                                BoxDecoration(
-                              color:
-                                  background,
-                              borderRadius:
-                                  BorderRadius
-                                      .circular(
-                                20,
-                              ),
-                            ),
-                            child: Text(
-                              item.toString(),
-                              style:
-                                  const TextStyle(
-                                color:
-                                    brown,
-                                fontSize:
-                                    9,
-                                fontWeight:
-                                    FontWeight
-                                        .w700,
-                              ),
-                            ),
-                          ),
-                        )
-                        .toList(),
+                children: specializations.map<Widget>((item) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: background,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      item.toString(),
+                      style: const TextStyle(
+                        color: brown,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  );
+                }).toList(),
               ),
             ],
-
             if (rate != null) ...[
-              const SizedBox(
-                height: 10,
-              ),
+              const SizedBox(height: 10),
               Text(
-                'Rate: $rate ETB/hour',
-                style:
-                    const TextStyle(
+                '${_tr('rate')}: $rate ${_tr('etb_per_hour')}',
+                style: const TextStyle(
                   color: textDark,
                   fontSize: 11,
-                  fontWeight:
-                      FontWeight.w700,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
@@ -2227,58 +1543,43 @@ class _ScheduleAppointmentScreenState
   Widget _buildTimeSlots() {
     if (_loadingSlots) {
       return const Padding(
-        padding:
-            EdgeInsets.all(20),
+        padding: EdgeInsets.all(20),
         child: Center(
-          child:
-              CircularProgressIndicator(),
+          child: CircularProgressIndicator(),
         ),
       );
     }
 
     if (_availableSlots.isEmpty) {
       return Container(
-        width:
-            double.infinity,
-        padding:
-            const EdgeInsets.all(
-          20,
-        ),
-        decoration:
-            BoxDecoration(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius:
-              BorderRadius.circular(
-            14,
-          ),
-          border: Border.all(
-            color: borderColor,
-          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: borderColor),
         ),
-        child: const Column(
+        child: Column(
           children: [
-            Icon(
-              Icons
-                  .event_busy_rounded,
+            const Icon(
+              Icons.event_busy_rounded,
               color: textMuted,
               size: 32,
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Text(
-              'No available time slots',
-              style: TextStyle(
+              _tr('no_available_time_slots'),
+              style: const TextStyle(
                 color: textDark,
-                fontWeight:
-                    FontWeight.w800,
+                fontWeight: FontWeight.w800,
                 fontSize: 13,
               ),
             ),
-            SizedBox(height: 4),
+            const SizedBox(height: 4),
             Text(
-              'Try selecting another date.',
-              textAlign:
-                  TextAlign.center,
-              style: TextStyle(
+              _tr('try_another_date'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
                 color: textMuted,
                 fontSize: 11,
               ),
@@ -2291,58 +1592,38 @@ class _ScheduleAppointmentScreenState
     return Wrap(
       spacing: 9,
       runSpacing: 9,
-      children:
-          _availableSlots.map(
-        (slot) {
-          final selected =
-              _selectedTime ==
-                  slot;
+      children: _availableSlots.map((slot) {
+        final selected = _selectedTime == slot;
 
-          return GestureDetector(
-            onTap: () {
-              setState(() {
-                _selectedTime =
-                    slot;
-              });
-            },
-            child: Container(
-              padding:
-                  const EdgeInsets
-                      .symmetric(
-                horizontal: 15,
-                vertical: 11,
-              ),
-              decoration:
-                  BoxDecoration(
-                color: selected
-                    ? darkBrown
-                    : Colors.white,
-                borderRadius:
-                    BorderRadius
-                        .circular(
-                  11,
-                ),
-                border: Border.all(
-                  color: selected
-                      ? darkBrown
-                      : borderColor,
-                ),
-              ),
-              child: Text(
-                slot,
-                style: TextStyle(
-                  color: selected
-                      ? Colors.white
-                      : textDark,
-                  fontSize: 12,
-                  fontWeight:
-                      FontWeight.w800,
-                ),
+        return GestureDetector(
+          onTap: () {
+            setState(() {
+              _selectedTime = slot;
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 15,
+              vertical: 11,
+            ),
+            decoration: BoxDecoration(
+              color: selected ? darkBrown : Colors.white,
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(
+                color: selected ? darkBrown : borderColor,
               ),
             ),
-          );
-        },
-      ).toList(),
+            child: Text(
+              slot,
+              style: TextStyle(
+                color: selected ? Colors.white : textDark,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -2352,28 +1633,17 @@ class _ScheduleAppointmentScreenState
 
   Widget _buildNoNutritionists() {
     return Container(
-      width:
-          double.infinity,
-      padding:
-          const EdgeInsets.all(
-        20,
-      ),
-      decoration:
-          BoxDecoration(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(
-          14,
-        ),
-        border: Border.all(
-          color: borderColor,
-        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor),
       ),
-      child: const Text(
-        'No approved nutritionists are currently available.',
-        textAlign:
-            TextAlign.center,
-        style: TextStyle(
+      child: Text(
+        _tr('no_approved_nutritionists'),
+        textAlign: TextAlign.center,
+        style: const TextStyle(
           color: textMuted,
           fontSize: 12,
         ),
@@ -2384,66 +1654,42 @@ class _ScheduleAppointmentScreenState
   Widget _buildError() {
     return Center(
       child: Padding(
-        padding:
-            const EdgeInsets.all(
-          24,
-        ),
+        padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisSize:
-              MainAxisSize.min,
+          mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(
-              Icons
-                  .error_outline_rounded,
+              Icons.error_outline_rounded,
               color: Colors.red,
               size: 48,
             ),
-            const SizedBox(
-              height: 12,
-            ),
-            const Text(
-              'Unable to load nutritionists',
-              textAlign:
-                  TextAlign.center,
-              style: TextStyle(
+            const SizedBox(height: 12),
+            Text(
+              _tr('unable_to_load_nutritionists'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
                 color: textDark,
                 fontSize: 17,
-                fontWeight:
-                    FontWeight.w800,
+                fontWeight: FontWeight.w800,
               ),
             ),
-            const SizedBox(
-              height: 8,
-            ),
+            const SizedBox(height: 8),
             Text(
-              _error ??
-                  'Unknown error.',
-              textAlign:
-                  TextAlign.center,
-              style:
-                  const TextStyle(
+              _error ?? _tr('unknown_error'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
                 color: textMuted,
                 fontSize: 12,
               ),
             ),
-            const SizedBox(
-              height: 16,
-            ),
+            const SizedBox(height: 16),
             ElevatedButton.icon(
-              onPressed:
-                  _loadNutritionists,
-              icon: const Icon(
-                Icons.refresh_rounded,
-              ),
-              label: const Text(
-                'Try Again',
-              ),
-              style:
-                  ElevatedButton.styleFrom(
-                backgroundColor:
-                    darkBrown,
-                foregroundColor:
-                    Colors.white,
+              onPressed: _loadNutritionists,
+              icon: const Icon(Icons.refresh_rounded),
+              label: Text(_tr('try_again')),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: darkBrown,
+                foregroundColor: Colors.white,
               ),
             ),
           ],

@@ -1153,278 +1153,360 @@ class _MealLoggerScreenState extends State<MealLoggerScreen> {
   // ============================================================
   // BUILD
   // ============================================================
+@override
+Widget build(BuildContext context) {
+  return AnimatedBuilder(
+    animation: AppLocalization.instance,
+    builder: (context, _) {
+      final rawTotals = _todayData?['totals'];
 
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: AppLocalization.instance,
-      builder: (context, _) {
-        final rawTotals = _todayData?['totals'];
+      final totals = rawTotals is Map
+          ? Map<String, dynamic>.from(rawTotals)
+          : <String, dynamic>{};
 
-        final totals = rawTotals is Map
-            ? Map<String, dynamic>.from(rawTotals)
-            : <String, dynamic>{};
+      final rawLogs = _todayData?['logs'];
 
-        final rawLogs = _todayData?['logs'];
+      final logs = rawLogs is List
+          ? rawLogs
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+          : <Map<String, dynamic>>[];
 
-        final logs = rawLogs is List
-            ? rawLogs
-                .whereType<Map>()
-                .map((item) => Map<String, dynamic>.from(item))
-                .toList()
-            : <Map<String, dynamic>>[];
+      final screenWidth = MediaQuery.of(context).size.width;
+      final isWide = screenWidth > 860;
+      final isCompact = screenWidth < 600;
+      final filteredLogs = _filteredLogs(logs);
 
-        final screenWidth = MediaQuery.of(context).size.width;
-        final isWide = screenWidth > 860;
-        final filteredLogs = _filteredLogs(logs);
+      // Shared navigation buttons.
+      final actionButtons = [
+        _circleButton(
+          Icons.chat_bubble_outline_rounded,
+          () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const AiChatScreen(),
+            ),
+          ),
+          tooltip: tr('ai_nutrition_chat'),
+          badgeColor: const Color(0xFF16A34A),
+        ),
+        _circleButton(
+          Icons.workspace_premium_outlined,
+          () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const ChapaPaymentScreen(),
+            ),
+          ),
+          tooltip: tr('upgrade_premium'),
+          iconColor: const Color(0xFFB45309),
+          backgroundColor: const Color(0xFFFEF3C7),
+        ),
+        _circleButton(
+          Icons.medical_services_outlined,
+          () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const NutritionistScreen(),
+            ),
+          ),
+          tooltip: tr('dietitian_supervision'),
+        ),
+        _circleButton(
+          Icons.camera_alt_outlined,
+          () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const FoodScannerScreen(),
+            ),
+          ).then((_) => _loadData()),
+          tooltip: tr('ai_food_scanner'),
+        ),
+        _circleButton(
+          Icons.refresh_rounded,
+          _loadData,
+          tooltip: tr('refresh_nutrients'),
+        ),
+      ];
 
-        return Scaffold(
-          backgroundColor: const Color(0xFFF7F2EA),
-          appBar: PreferredSize(
-            preferredSize: const Size.fromHeight(70),
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Color(0xFFF7F2EA),
-                border: Border(
-                  bottom: BorderSide(
-                    color: Color(0xFFEADBCE),
-                    width: 1,
+      final brand = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: const BoxDecoration(
+              color: Color(0xFF542E13),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.eco_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'EthioWellness AI',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 17.5,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF542E13),
+                    letterSpacing: -0.3,
                   ),
                 ),
+                Text(
+                  tr('todays_nutrition_fasting'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF78716C),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+
+      return Scaffold(
+        backgroundColor: const Color(0xFFF7F2EA),
+
+        appBar: PreferredSize(
+          preferredSize: Size.fromHeight(
+            isCompact ? 112 : 70,
+          ),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFFF7F2EA),
+              border: Border(
+                bottom: BorderSide(
+                  color: Color(0xFFEADBCE),
+                  width: 1,
+                ),
               ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 10,
-              ),
-              child: SafeArea(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
+            ),
+            padding: EdgeInsets.symmetric(
+              horizontal: isCompact ? 12 : 16,
+              vertical: isCompact ? 6 : 10,
+            ),
+            child: SafeArea(
+              child: isCompact
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF542E13),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.eco_rounded,
-                            color: Colors.white,
-                            size: 22,
+                        // First row: brand and language toggle.
+                        SizedBox(
+                          height: 42,
+                          child: Row(
+                            children: [
+                              Expanded(child: brand),
+                              const SizedBox(width: 4),
+                              const LanguageToggleButton(),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text(
-                              'EthioWellness AI',
-                              style: TextStyle(
-                                fontSize: 17.5,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF542E13),
-                                letterSpacing: -0.3,
+
+                        const SizedBox(height: 4),
+
+                        // Second row: action buttons.
+                        SizedBox(
+                          height: 40,
+                          child: Row(
+                            mainAxisAlignment:
+                                MainAxisAlignment.spaceBetween,
+                            children: actionButtons
+                                .map(
+                                  (button) => Flexible(
+                                    child: button,
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      mainAxisAlignment:
+                          MainAxisAlignment.spaceBetween,
+                      children: [
+                        Flexible(
+                          flex: 4,
+                          child: brand,
+                        ),
+
+                        if (isWide)
+                          Flexible(
+                            flex: 3,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              child: Text(
+                                tr('food_logging_nutrition'),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF8D4F28),
+                                ),
                               ),
                             ),
-                            Text(
-                              tr('todays_nutrition_fasting'),
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Color(0xFF78716C),
-                              ),
+                          ),
+
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const LanguageToggleButton(),
+                            const SizedBox(width: 7),
+                            ...actionButtons.expand(
+                              (button) => [
+                                button,
+                                if (button != actionButtons.last)
+                                  const SizedBox(width: 7),
+                              ],
                             ),
                           ],
                         ),
                       ],
                     ),
-                    if (isWide)
-                      Text(
-                        tr('food_logging_nutrition'),
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF8D4F28),
-                        ),
-                      ),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const LanguageToggleButton(),
-                        const SizedBox(width: 7),
-                        _circleButton(
-                          Icons.chat_bubble_outline_rounded,
-                          () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const AiChatScreen(),
-                            ),
-                          ),
-                          tooltip: tr('ai_nutrition_chat'),
-                          badgeColor: const Color(0xFF16A34A),
-                        ),
-                        const SizedBox(width: 7),
-                        _circleButton(
-                          Icons.workspace_premium_outlined,
-                          () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  const ChapaPaymentScreen(),
-                            ),
-                          ),
-                          tooltip: tr('upgrade_premium'),
-                          iconColor: const Color(0xFFB45309),
-                          backgroundColor: const Color(0xFFFEF3C7),
-                        ),
-                        const SizedBox(width: 7),
-                        _circleButton(
-                          Icons.medical_services_outlined,
-                          () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  const NutritionistScreen(),
-                            ),
-                          ),
-                          tooltip: tr('dietitian_supervision'),
-                        ),
-                        const SizedBox(width: 7),
-                        _circleButton(
-                          Icons.camera_alt_outlined,
-                          () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  const FoodScannerScreen(),
-                            ),
-                          ).then((_) => _loadData()),
-                          tooltip: tr('ai_food_scanner'),
-                        ),
-                        const SizedBox(width: 7),
-                        _circleButton(
-                          Icons.refresh_rounded,
-                          _loadData,
-                          tooltip: tr('refresh_nutrients'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
             ),
           ),
-          body: _isLoading
-              ? const Center(
-                  child: CircularProgressIndicator(
-                    color: Color(0xFF542E13),
+        ),
+
+        body: _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(
+                  color: Color(0xFF542E13),
+                ),
+              )
+            : RefreshIndicator(
+                color: const Color(0xFF542E13),
+                onRefresh: _loadData,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
                   ),
-                )
-              : RefreshIndicator(
-                  color: const Color(0xFF542E13),
-                  onRefresh: _loadData,
-                  child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (!isWide)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 14),
-                            child: Row(
-                              mainAxisAlignment:
-                                  MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (!isWide)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: Row(
+                            mainAxisAlignment:
+                                MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
                                   tr('todays_wellness'),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
                                     fontSize: 24,
                                     fontWeight: FontWeight.bold,
                                     color: Color(0xFF8D4F28),
                                   ),
                                 ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.sync,
-                                    color: Color(0xFF542E13),
-                                  ),
-                                  onPressed: _loadData,
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.sync,
+                                  color: Color(0xFF542E13),
                                 ),
-                              ],
+                                onPressed: _loadData,
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      _buildSearchFilter(),
+                      const SizedBox(height: 16),
+
+                      _buildQuickActionCards(),
+                      const SizedBox(height: 20),
+
+                      _buildSleepMoodCard(),
+                      const SizedBox(height: 20),
+
+                      _buildTodayExerciseCard(),
+                      const SizedBox(height: 20),
+
+                      if (isWide)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              flex: 13,
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.stretch,
+                                children: [
+                                  const FastingCalendar(),
+                                  const SizedBox(height: 16),
+                                  _buildFoodLogsCard(filteredLogs),
+                                ],
+                              ),
                             ),
-                          ),
-                        _buildSearchFilter(),
-                        const SizedBox(height: 16),
-                        _buildQuickActionCards(),
-                        const SizedBox(height: 20),
-                        _buildSleepMoodCard(),
-                        const SizedBox(height: 20),
-                        _buildTodayExerciseCard(),
-                        const SizedBox(height: 20),
-                        if (isWide)
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                flex: 13,
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    const FastingCalendar(),
-                                    const SizedBox(height: 16),
-                                    _buildFoodLogsCard(filteredLogs),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 20),
-                              Expanded(
-                                flex: 9,
-                                child: _buildDailyTotalsCard(totals),
-                              ),
-                            ],
-                          )
-                        else
-                          Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment.stretch,
-                            children: [
-                              _buildDailyTotalsCard(totals),
-                              const SizedBox(height: 16),
-                              const FastingCalendar(),
-                              const SizedBox(height: 16),
-                              _buildFoodLogsCard(filteredLogs),
-                            ],
-                          ),
-                      ],
-                    ),
+                            const SizedBox(width: 20),
+                            Expanded(
+                              flex: 9,
+                              child: _buildDailyTotalsCard(totals),
+                            ),
+                          ],
+                        )
+                      else
+                        Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.stretch,
+                          children: [
+                            _buildDailyTotalsCard(totals),
+                            const SizedBox(height: 16),
+                            const FastingCalendar(),
+                            const SizedBox(height: 16),
+                            _buildFoodLogsCard(filteredLogs),
+                          ],
+                        ),
+                    ],
                   ),
                 ),
-          floatingActionButton: FloatingActionButton.extended(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const FoodSearchScreen(),
               ),
-            ).then((_) => _loadData()),
-            backgroundColor: const Color(0xFF542E13),
-            foregroundColor: Colors.white,
-            icon: const Icon(Icons.search),
-            label: Text(
-              tr('search_fao_food'),
-              style: const TextStyle(fontWeight: FontWeight.bold),
+
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const FoodSearchScreen(),
+            ),
+          ).then((_) => _loadData()),
+          backgroundColor: const Color(0xFF542E13),
+          foregroundColor: Colors.white,
+          icon: const Icon(Icons.search),
+          label: Text(
+            tr('search_fao_food'),
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
             ),
           ),
-        );
-      },
-    );
-  }
+        ),
+      );
+    },
+  );
+}
     // ============================================================
   // SEARCH
   // ============================================================

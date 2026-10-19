@@ -37,10 +37,8 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
   @override
   void initState() {
     super.initState();
-
     _localization = AppLocalization.instance;
     _localization.addListener(_onLanguageChanged);
-
     _loadAppointments();
   }
 
@@ -67,27 +65,23 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
     });
 
     try {
-      final response = await ApiClient.get(
-        '/supervision/my-appointments',
-      );
+      final response = await AppointmentService.getMyAppointments();
 
       if (!mounted) return;
 
-      if (response is Map) {
-        final appointments = response['appointments'];
+      final dynamic rawAppointments;
 
-        _appointments = appointments is List
-            ? List<dynamic>.from(appointments)
-            : [];
-      } else if (response is List) {
-        _appointments = List<dynamic>.from(response);
+      if (response['appointments'] is List) {
+        rawAppointments = response['appointments'];
+      } else if (response['data'] is List) {
+        rawAppointments = response['data'];
       } else {
-        _appointments = [];
+        rawAppointments = [];
       }
 
-      setState(() {
-        _loading = false;
-      });
+      _appointments = List<dynamic>.from(rawAppointments as List);
+
+      setState(() => _loading = false);
     } catch (e) {
       if (!mounted) return;
 
@@ -108,30 +102,21 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
     final appointmentId = appointment['id']?.toString();
 
     if (appointmentId == null || appointmentId.isEmpty) {
-      _showSnackBar(
-        _tr('appointment_id_missing'),
-        isError: true,
-      );
+      _showSnackBar(_tr('appointment_id_missing'), isError: true);
       return;
     }
 
     final scheduledAt = _parseDate(appointment['scheduledAt']);
 
     if (scheduledAt == null) {
-      _showSnackBar(
-        _tr('appointment_time_invalid'),
-        isError: true,
-      );
+      _showSnackBar(_tr('appointment_time_invalid'), isError: true);
       return;
     }
 
     final status = appointment['status']?.toString().toLowerCase();
 
     if (status == 'cancelled' || status == 'canceled') {
-      _showSnackBar(
-        _tr('appointment_cancelled'),
-        isError: true,
-      );
+      _showSnackBar(_tr('appointment_cancelled'), isError: true);
       return;
     }
 
@@ -141,8 +126,7 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
       _showLoadingDialog();
       loadingDialogShown = true;
 
-      final session =
-          await AppointmentService.getPatientVideoSession(
+      final session = await AppointmentService.getPatientVideoSession(
         appointmentId,
       );
 
@@ -240,9 +224,7 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
 
   DateTime? _parseDate(dynamic value) {
     if (value == null) return null;
-
     if (value is DateTime) return value.toLocal();
-
     return DateTime.tryParse(value.toString())?.toLocal();
   }
 
@@ -258,7 +240,6 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
 
   String _formatDate(dynamic value) {
     final date = _parseDate(value);
-
     if (date == null) return '-';
 
     final hour = date.hour == 0
@@ -276,15 +257,12 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
 
   bool _isPast(dynamic value) {
     final date = _parseDate(value);
-
     if (date == null) return false;
-
     return !date.isAfter(DateTime.now());
   }
 
   bool _isCancelled(dynamic status) {
     final value = status?.toString().toLowerCase();
-
     return value == 'cancelled' || value == 'canceled';
   }
 
@@ -360,9 +338,7 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
         elevation: 0,
         title: Text(
           _tr('my_appointments'),
-          style: const TextStyle(
-            fontWeight: FontWeight.w800,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.w800),
         ),
         actions: [
           const LanguageToggleButton(),
@@ -374,9 +350,7 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
         ],
       ),
       body: _loading
-          ? const Center(
-              child: CircularProgressIndicator(),
-            )
+          ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? _buildErrorState()
               : RefreshIndicator(
@@ -390,9 +364,7 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
         icon: const Icon(Icons.add_rounded),
         label: Text(
           _tr('schedule_appointment'),
-          style: const TextStyle(
-            fontWeight: FontWeight.w800,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.w800),
         ),
       ),
     );
@@ -415,7 +387,6 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
 
     final upcoming = _appointments.where((item) {
       if (item is! Map) return false;
-
       final appointment = Map<String, dynamic>.from(item);
 
       return !_isPast(appointment['scheduledAt']) &&
@@ -424,7 +395,6 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
 
     final previous = _appointments.where((item) {
       if (item is! Map) return false;
-
       final appointment = Map<String, dynamic>.from(item);
 
       return _isPast(appointment['scheduledAt']) ||
@@ -473,19 +443,13 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
     );
   }
 
-  // ============================================================
-  // INFO BANNER
-  // ============================================================
-
   Widget _buildInfoBanner() {
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
         color: darkBrown.withOpacity(.07),
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(
-          color: darkBrown.withOpacity(.12),
-        ),
+        border: Border.all(color: darkBrown.withOpacity(.12)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -529,16 +493,13 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
   // APPOINTMENT CARD
   // ============================================================
 
-  Widget _buildAppointmentCard(
-    Map<String, dynamic> appointment,
-  ) {
+  Widget _buildAppointmentCard(Map<String, dynamic> appointment) {
     final status = appointment['status'];
     final statusText = _localizedStatus(status);
     final statusColor = _statusColor(status);
     final scheduledAt = appointment['scheduledAt'];
     final past = _isPast(scheduledAt);
     final cancelled = _isCancelled(status);
-
     final appointmentId = appointment['id']?.toString() ?? '-';
 
     String nutritionistName =
@@ -712,10 +673,7 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: () => _joinVideoConsultation(appointment),
-                icon: const Icon(
-                  Icons.video_call_rounded,
-                  size: 19,
-                ),
+                icon: const Icon(Icons.video_call_rounded, size: 19),
                 label: Text(_tr('join_video_consultation')),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: darkBrown,
@@ -746,10 +704,6 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
       ),
     );
   }
-
-  // ============================================================
-  // EMPTY STATE
-  // ============================================================
 
   Widget _buildEmptyState() {
     return Column(
@@ -806,10 +760,6 @@ class _UserAppointmentsScreenState extends State<UserAppointmentsScreen> {
       ],
     );
   }
-
-  // ============================================================
-  // ERROR STATE
-  // ============================================================
 
   Widget _buildErrorState() {
     return Center(
@@ -883,8 +833,12 @@ class _ScheduleAppointmentScreenState
   Map<String, dynamic>? _selectedNutritionist;
 
   DateTime _selectedDate = DateTime.now();
-  String? _selectedTime;
-  List<String> _availableSlots = [];
+
+  // Store complete slot objects from the API.
+  List<Map<String, dynamic>> _availableSlots = [];
+
+  // Store the selected slot's ISO scheduledAt value.
+  String? _selectedSlotTime;
 
   final TextEditingController _notesController =
       TextEditingController();
@@ -901,10 +855,8 @@ class _ScheduleAppointmentScreenState
   @override
   void initState() {
     super.initState();
-
     _localization = AppLocalization.instance;
     _localization.addListener(_onLanguageChanged);
-
     _loadNutritionists();
   }
 
@@ -931,18 +883,23 @@ class _ScheduleAppointmentScreenState
 
       if (!mounted) return;
 
-      if (response is Map) {
-        final data = response['nutritionists'];
+      final dynamic rawNutritionists;
 
-        if (data is List) {
-          _nutritionists = List<dynamic>.from(data);
-        }
+      if (response is Map && response['nutritionists'] is List) {
+        rawNutritionists = response['nutritionists'];
+      } else if (response is Map && response['data'] is List) {
+        rawNutritionists = response['data'];
       } else if (response is List) {
-        _nutritionists = List<dynamic>.from(response);
+        rawNutritionists = response;
+      } else {
+        rawNutritionists = [];
       }
+
+      _nutritionists = List<dynamic>.from(rawNutritionists as List);
 
       setState(() {
         _loadingNutritionists = false;
+        _error = null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -966,35 +923,43 @@ class _ScheduleAppointmentScreenState
     final nutritionistId = nutritionist['id']?.toString();
 
     if (nutritionistId == null || nutritionistId.isEmpty) {
+      _showSnackBar(
+        _tr('nutritionist_id_missing'),
+        isError: true,
+      );
       return;
     }
 
     setState(() {
       _loadingSlots = true;
-      _selectedTime = null;
+      _selectedSlotTime = null;
       _availableSlots = [];
     });
 
     try {
-      final date =
-          '${_selectedDate.year}-'
-          '${_selectedDate.month.toString().padLeft(2, '0')}-'
-          '${_selectedDate.day.toString().padLeft(2, '0')}';
-
-      final response = await ApiClient.get(
-        '/supervision/nutritionists/$nutritionistId/availability?date=$date',
+      final response =
+          await AppointmentService.getNutritionistAvailability(
+        nutritionistId: nutritionistId,
+        date: _selectedDate,
       );
 
       if (!mounted) return;
 
-      if (response is Map) {
-        final slots = response['availableSlots'];
+      final dynamic rawSlots = response['availableSlots'];
 
-        if (slots is List) {
-          _availableSlots = slots.map((slot) => slot.toString()).toList();
-        }
-      } else if (response is List) {
-        _availableSlots = response.map((slot) => slot.toString()).toList();
+      if (rawSlots is List) {
+        _availableSlots = rawSlots
+            .whereType<Map>()
+            .map(
+              (slot) => Map<String, dynamic>.from(slot),
+            )
+            .where((slot) {
+              final available = slot['available'];
+              return available == null || available == true;
+            })
+            .toList();
+      } else {
+        _availableSlots = [];
       }
 
       setState(() {
@@ -1005,6 +970,7 @@ class _ScheduleAppointmentScreenState
 
       setState(() {
         _loadingSlots = false;
+        _availableSlots = [];
       });
 
       _showSnackBar(
@@ -1039,7 +1005,7 @@ class _ScheduleAppointmentScreenState
 
     setState(() {
       _selectedDate = picked;
-      _selectedTime = null;
+      _selectedSlotTime = null;
     });
 
     await _loadAvailableSlots();
@@ -1060,7 +1026,9 @@ class _ScheduleAppointmentScreenState
       return;
     }
 
-    if (_selectedTime == null || _selectedTime!.isEmpty) {
+    final selectedTime = _selectedSlotTime;
+
+    if (selectedTime == null || selectedTime.isEmpty) {
       _showSnackBar(
         _tr('please_select_available_time'),
         isError: true,
@@ -1078,40 +1046,25 @@ class _ScheduleAppointmentScreenState
       return;
     }
 
-    final parts = _selectedTime!.split(':');
+    // The API returns the actual UTC timestamp for each slot.
+    // Do not reconstruct it from the displayed local time.
+    final scheduledAt = DateTime.tryParse(selectedTime);
 
-    if (parts.length != 2) {
+    if (scheduledAt == null) {
       _showSnackBar(
         _tr('appointment_time_invalid'),
         isError: true,
       );
       return;
     }
-
-    final hour = int.tryParse(parts[0]);
-    final minute = int.tryParse(parts[1]);
-
-    if (hour == null || minute == null) {
-      _showSnackBar(
-        _tr('appointment_time_invalid'),
-        isError: true,
-      );
-      return;
-    }
-
-    final scheduledAt = DateTime(
-      _selectedDate.year,
-      _selectedDate.month,
-      _selectedDate.day,
-      hour,
-      minute,
-    );
 
     if (!scheduledAt.isAfter(DateTime.now())) {
       _showSnackBar(
         _tr('please_select_future_time'),
         isError: true,
       );
+
+      await _loadAvailableSlots();
       return;
     }
 
@@ -1120,13 +1073,10 @@ class _ScheduleAppointmentScreenState
         _booking = true;
       });
 
-      await ApiClient.post(
-        '/supervision/appointments',
-        {
-          'nutritionistId': nutritionistId,
-          'scheduledAt': scheduledAt.toUtc().toIso8601String(),
-          'notes': _notesController.text.trim(),
-        },
+      await AppointmentService.bookSupervisionAppointment(
+        nutritionistId: nutritionistId,
+        scheduledAt: scheduledAt,
+        notes: _notesController.text.trim(),
       );
 
       if (!mounted) return;
@@ -1147,6 +1097,9 @@ class _ScheduleAppointmentScreenState
         '${_tr('unable_to_schedule_appointment')}: ${_cleanError(e)}',
         isError: true,
       );
+
+      // Refresh the slots in case another user booked the selected slot.
+      await _loadAvailableSlots();
     } finally {
       if (mounted) {
         setState(() {
@@ -1174,6 +1127,33 @@ class _ScheduleAppointmentScreenState
     return '${_selectedDate.day}/'
         '${_selectedDate.month}/'
         '${_selectedDate.year}';
+  }
+
+  String _formatSlotTime(Map<String, dynamic> slot) {
+    final rawTime = slot['startTime']?.toString();
+
+    if (rawTime == null || rawTime.isEmpty) {
+      return slot['scheduledAt']?.toString() ?? '-';
+    }
+
+    final parts = rawTime.split(':');
+
+    if (parts.length != 2) return rawTime;
+
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+
+    if (hour == null || minute == null) return rawTime;
+
+    final displayHour = hour == 0
+        ? 12
+        : hour > 12
+            ? hour - 12
+            : hour;
+
+    final period = hour >= 12 ? 'PM' : 'AM';
+
+    return '$displayHour:${minute.toString().padLeft(2, '0')} $period';
   }
 
   void _showSnackBar(
@@ -1206,18 +1186,14 @@ class _ScheduleAppointmentScreenState
         elevation: 0,
         title: Text(
           _tr('schedule_appointment'),
-          style: const TextStyle(
-            fontWeight: FontWeight.w800,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.w800),
         ),
         actions: const [
           LanguageToggleButton(),
         ],
       ),
       body: _loadingNutritionists
-          ? const Center(
-              child: CircularProgressIndicator(),
-            )
+          ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? _buildError()
               : _buildForm(),
@@ -1415,7 +1391,7 @@ class _ScheduleAppointmentScreenState
       onTap: () {
         setState(() {
           _selectedNutritionist = nutritionist;
-          _selectedTime = null;
+          _selectedSlotTime = null;
           _availableSlots = [];
         });
 
@@ -1544,9 +1520,7 @@ class _ScheduleAppointmentScreenState
     if (_loadingSlots) {
       return const Padding(
         padding: EdgeInsets.all(20),
-        child: Center(
-          child: CircularProgressIndicator(),
-        ),
+        child: Center(child: CircularProgressIndicator()),
       );
     }
 
@@ -1593,14 +1567,18 @@ class _ScheduleAppointmentScreenState
       spacing: 9,
       runSpacing: 9,
       children: _availableSlots.map((slot) {
-        final selected = _selectedTime == slot;
+        final slotTime = slot['scheduledAt']?.toString();
+        final selected =
+            slotTime != null && _selectedSlotTime == slotTime;
 
         return GestureDetector(
-          onTap: () {
-            setState(() {
-              _selectedTime = slot;
-            });
-          },
+          onTap: slotTime == null
+              ? null
+              : () {
+                  setState(() {
+                    _selectedSlotTime = slotTime;
+                  });
+                },
           child: Container(
             padding: const EdgeInsets.symmetric(
               horizontal: 15,
@@ -1614,7 +1592,7 @@ class _ScheduleAppointmentScreenState
               ),
             ),
             child: Text(
-              slot,
+              _formatSlotTime(slot),
               style: TextStyle(
                 color: selected ? Colors.white : textDark,
                 fontSize: 12,

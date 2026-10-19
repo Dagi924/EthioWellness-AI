@@ -1,4 +1,5 @@
 import 'api_client.dart';
+import 'app_localization.dart';
 
 class AiChatResponse {
   final String reply;
@@ -49,13 +50,14 @@ class RecipeRecommendation {
     Map<String, dynamic> json,
   ) {
     return RecipeRecommendation(
-      title: json['title']?.toString() ?? 'Ethiopian Recipe',
+      title:
+          json['title']?.toString() ?? 'Ethiopian Recipe',
 
       description:
           json['description']?.toString() ?? '',
 
       ingredients:
-          (json['ingredients'] is List)
+          json['ingredients'] is List
               ? (json['ingredients'] as List)
                   .map((e) => e.toString())
                   .toList()
@@ -80,7 +82,7 @@ class RecipeRecommendation {
               : {},
 
       instructions:
-          (json['instructions'] is List)
+          json['instructions'] is List
               ? (json['instructions'] as List)
                   .map((e) => e.toString())
                   .toList()
@@ -91,23 +93,44 @@ class RecipeRecommendation {
 
 class AiService {
   // ==========================================================================
+  // GET CURRENT RESPONSE LANGUAGE
+  // ==========================================================================
+
+  static String _getResponseLanguage(
+    String? languageCode,
+  ) {
+    final selectedLanguage =
+        languageCode ??
+        AppLocalization.instance.locale.languageCode;
+
+    return selectedLanguage == 'am' ? 'am' : 'en';
+  }
+
+  // ==========================================================================
   // SEND CHAT MESSAGE
   // POST /api/v1/ai/chat
   // ==========================================================================
 
   static Future<AiChatResponse> sendMessage(
-    String message,
-  ) async {
+    String message, {
+    String? languageCode,
+  }) async {
     final cleanMessage = message.trim();
 
     if (cleanMessage.isEmpty) {
       throw Exception('Message cannot be empty');
     }
 
+    // Read the selected app language.
+    final responseLanguage =
+        _getResponseLanguage(languageCode);
+
+    // Send both the message and language to Express.
     final res = await ApiClient.post(
       '/ai/chat',
       {
         'prompt': cleanMessage,
+        'language': responseLanguage,
       },
     );
 
@@ -116,6 +139,7 @@ class AiService {
     // ------------------------------------------------------------------------
 
     print('==================================================');
+    print('[AI FLUTTER] Response language: $responseLanguage');
     print('[AI FLUTTER] Backend response:');
     print(res);
     print('==================================================');
@@ -124,8 +148,7 @@ class AiService {
     // GET ACTUAL AI RESPONSE
     // ------------------------------------------------------------------------
 
-    final dynamic rawReply =
-        res['aiResponse'];
+    final dynamic rawReply = res['aiResponse'];
 
     if (rawReply == null) {
       throw Exception(
@@ -153,35 +176,24 @@ class AiService {
     // CONTEXT USED
     // ------------------------------------------------------------------------
 
-    final dynamic contextUsed =
-        res['contextUsed'];
+    final dynamic contextUsed = res['contextUsed'];
 
     final Map<String, dynamic> context =
         contextUsed is Map
-            ? Map<String, dynamic>.from(
-                contextUsed,
-              )
+            ? Map<String, dynamic>.from(contextUsed)
             : {};
 
     final int foodLogCount =
-        _toInt(
-          context['todayFoodLogs'],
-        );
+        _toInt(context['todayFoodLogs']);
 
     final int sleepLogCount =
-        _toInt(
-          context['todaySleepLogs'],
-        );
+        _toInt(context['todaySleepLogs']);
 
     final int moodLogCount =
-        _toInt(
-          context['todayMoodLogs'],
-        );
+        _toInt(context['todayMoodLogs']);
 
     final int previousChats =
-        _toInt(
-          context['previousChats'],
-        );
+        _toInt(context['previousChats']);
 
     final String? date =
         context['date']?.toString();
@@ -194,66 +206,45 @@ class AiService {
         res['aiAvailable'] == true;
 
     // ------------------------------------------------------------------------
-    // FASTING PRACTICE
+    // FASTING PRACTICE AND GOAL
     //
-    // The new backend doesn't return userContext, so use a safe default.
+    // The current backend does not return userContext.
+    // Use safe defaults when it is absent.
     // ------------------------------------------------------------------------
 
-    final dynamic userContext =
-        res['userContext'];
+    final dynamic userContext = res['userContext'];
 
-    String fastingPractice =
-        'orthodox';
-
+    String fastingPractice = 'orthodox';
     String? goal;
 
     if (userContext is Map) {
       final contextMap =
-          Map<String, dynamic>.from(
-            userContext,
-          );
+          Map<String, dynamic>.from(userContext);
 
       if (contextMap['fastingPractice'] != null) {
         fastingPractice =
-            contextMap['fastingPractice']
-                .toString();
+            contextMap['fastingPractice'].toString();
       }
 
       if (contextMap['goal'] != null) {
-        goal =
-            contextMap['goal'].toString();
+        goal = contextMap['goal'].toString();
       }
     }
 
     // ------------------------------------------------------------------------
-    // RETURN REAL AI RESPONSE
+    // RETURN RESPONSE
     // ------------------------------------------------------------------------
 
     return AiChatResponse(
       reply: reply,
-
-      fastingPractice:
-          fastingPractice,
-
+      fastingPractice: fastingPractice,
       goal: goal,
-
-      foodLogCount:
-          foodLogCount,
-
-      sleepLogCount:
-          sleepLogCount,
-
-      moodLogCount:
-          moodLogCount,
-
-      previousChats:
-          previousChats,
-
-      date:
-          date,
-
-      aiAvailable:
-          aiAvailable,
+      foodLogCount: foodLogCount,
+      sleepLogCount: sleepLogCount,
+      moodLogCount: moodLogCount,
+      previousChats: previousChats,
+      date: date,
+      aiAvailable: aiAvailable,
     );
   }
 
@@ -261,9 +252,7 @@ class AiService {
   // CONVERT ANY NUMERIC VALUE SAFELY TO INT
   // ==========================================================================
 
-  static int _toInt(
-    dynamic value,
-  ) {
+  static int _toInt(dynamic value) {
     if (value is int) {
       return value;
     }
@@ -298,8 +287,7 @@ class AiService {
         if (mealType != null)
           'mealType': mealType,
 
-        'numberOfRecipes':
-            numberOfRecipes,
+        'numberOfRecipes': numberOfRecipes,
       },
     );
 
@@ -311,8 +299,7 @@ class AiService {
 
     if (rawRecs is Map &&
         rawRecs['recommendations'] is List) {
-      list =
-          rawRecs['recommendations'];
+      list = rawRecs['recommendations'];
     } else if (rawRecs is List) {
       list = rawRecs;
     }
@@ -320,11 +307,8 @@ class AiService {
     return list
         .whereType<Map>()
         .map(
-          (item) =>
-              RecipeRecommendation.fromJson(
-            Map<String, dynamic>.from(
-              item,
-            ),
+          (item) => RecipeRecommendation.fromJson(
+            Map<String, dynamic>.from(item),
           ),
         )
         .toList();

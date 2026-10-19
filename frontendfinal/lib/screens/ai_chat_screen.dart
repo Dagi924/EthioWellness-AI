@@ -76,6 +76,17 @@ class _AiChatScreenState extends State<AiChatScreen> {
     return AppLocalization.instance.tr(key);
   }
 
+  // ============================================================
+  // GET THE CURRENT APP LANGUAGE
+  // ============================================================
+
+  String get _responseLanguage {
+    final languageCode =
+        AppLocalization.instance.locale.languageCode;
+
+    return languageCode == 'am' ? 'am' : 'en';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -117,10 +128,17 @@ class _AiChatScreenState extends State<AiChatScreen> {
     });
   }
 
+  // ============================================================
+  // SEND CHAT MESSAGE WITH THE SELECTED RESPONSE LANGUAGE
+  // ============================================================
+
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty || _isLoading) return;
 
     final userMessage = text.trim();
+
+    // Capture the selected language when the message is sent.
+    final languageCode = _responseLanguage;
 
     _messageCtrl.clear();
 
@@ -139,8 +157,10 @@ class _AiChatScreenState extends State<AiChatScreen> {
     _scrollToBottom();
 
     try {
-      final aiResult =
-          await AiService.sendMessage(userMessage);
+      final aiResult = await AiService.sendMessage(
+        userMessage,
+        languageCode: languageCode,
+      );
 
       if (!mounted) return;
 
@@ -209,8 +229,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         mainAxisAlignment:
@@ -220,8 +239,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                             child: Row(
                               children: [
                                 Container(
-                                  padding:
-                                      const EdgeInsets.all(8),
+                                  padding: const EdgeInsets.all(8),
                                   decoration: const BoxDecoration(
                                     color: Color(0xFFF5EBE1),
                                     shape: BoxShape.circle,
@@ -238,8 +256,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                                     _tr('chat_pantry_title'),
                                     style: const TextStyle(
                                       fontSize: 18,
-                                      fontWeight:
-                                          FontWeight.bold,
+                                      fontWeight: FontWeight.bold,
                                       color: Color(0xFF542E13),
                                     ),
                                   ),
@@ -464,8 +481,9 @@ class _AiChatScreenState extends State<AiChatScreen> {
                           ? Alignment.centerRight
                           : Alignment.centerLeft,
                       child: Container(
-                        margin:
-                            const EdgeInsets.only(bottom: 12),
+                        margin: const EdgeInsets.only(
+                          bottom: 12,
+                        ),
                         constraints: BoxConstraints(
                           maxWidth:
                               MediaQuery.of(context).size.width *
@@ -496,8 +514,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                                 ),
                           boxShadow: [
                             BoxShadow(
-                              color:
-                                  Colors.black.withOpacity(0.03),
+                              color: Colors.black.withOpacity(0.03),
                               blurRadius: 8,
                               offset: const Offset(0, 2),
                             ),
@@ -526,8 +543,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                                 style: TextStyle(
                                   fontSize: 10,
                                   color: message.isUser
-                                      ? Colors.white
-                                          .withOpacity(0.7)
+                                      ? Colors.white.withOpacity(0.7)
                                       : const Color(0xFFA8A29E),
                                 ),
                               ),
@@ -543,9 +559,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
               // Loading indicator.
               if (_isLoading)
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 6,
-                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [

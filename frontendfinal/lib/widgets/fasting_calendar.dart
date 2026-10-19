@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/fasting_service.dart';
+import '../services/app_localization.dart';
 
 class FastingCalendar extends StatefulWidget {
   const FastingCalendar({super.key});
@@ -17,7 +18,6 @@ class _FastingCalendarState extends State<FastingCalendar> {
   late DateTime _month;
   DateTime? _selectedDate;
 
-  // Used until the user's saved profile preference is loaded.
   String _religion = 'both';
   String? _profilePractice;
 
@@ -26,11 +26,12 @@ class _FastingCalendarState extends State<FastingCalendar> {
   bool _profileLoading = true;
   String? _error;
 
+  String _t(String key) => AppLocalization.instance.tr(key);
+
   @override
   void initState() {
     super.initState();
 
-    // Start on today's date and month.
     _today = DateTime.now();
     _month = DateTime(_today.year, _today.month);
     _selectedDate = DateTime(_today.year, _today.month, _today.day);
@@ -44,24 +45,14 @@ class _FastingCalendarState extends State<FastingCalendar> {
     await _loadCalendar();
   }
 
-  /// Fetch the user's saved fasting practice from their profile.
-  ///
-  /// Connect this to the actual profile method in FastingService.
   Future<void> _loadProfilePractice() async {
     try {
-      // TODO: Replace this with your real profile API method.
-      //
+      // Connect your profile API here when available.
       // Example:
-      // final profile = await FastingService.getUserProfile();
-      // final practice = profile['fastingPractice'] ??
-      //     profile['fasting_practice'] ??
-      //     profile['fastingPreference'];
-      //
-      // _applyProfilePractice(practice);
-
-      // Keep the current default if the profile has not been connected.
+      // final profile = await ProfileService.getProfile();
+      // _applyProfilePractice(profile['fastingPractice']);
     } catch (_) {
-      // Allow the calendar to load even if profile retrieval fails.
+      // The calendar can still load without profile data.
     } finally {
       if (mounted) {
         setState(() => _profileLoading = false);
@@ -75,37 +66,33 @@ class _FastingCalendarState extends State<FastingCalendar> {
     final value = practice.toString().trim().toLowerCase();
     if (value.isEmpty) return;
 
-    String selected;
-
     if ([
       'orthodox',
       'ethiopian_orthodox',
       'ethiopian orthodox',
       'christian',
     ].contains(value)) {
-      selected = 'orthodox';
+      _religion = 'orthodox';
     } else if ([
       'islam',
       'islamic',
       'muslim',
       'ramadan',
     ].contains(value)) {
-      selected = 'islam';
+      _religion = 'islam';
     } else if ([
       'both',
       'all',
       'orthodox_and_islam',
       'orthodox and islam',
     ].contains(value)) {
-      selected = 'both';
+      _religion = 'both';
     } else {
-      // Do not silently map an unknown profile value to another religion.
       _profilePractice = practice.toString();
       return;
     }
 
     _profilePractice = practice.toString();
-    _religion = selected;
   }
 
   String _dateKey(DateTime date) =>
@@ -148,18 +135,11 @@ class _FastingCalendarState extends State<FastingCalendar> {
     setState(() {
       _month = DateTime(_month.year, _month.month + amount);
 
-      // Select today when navigating back to the current month.
-      // Otherwise select the first day of the viewed month.
-      if (_month.year == _today.year &&
-          _month.month == _today.month) {
-        _selectedDate = DateTime(
-          _today.year,
-          _today.month,
-          _today.day,
-        );
-      } else {
-        _selectedDate = DateTime(_month.year, _month.month, 1);
-      }
+      _selectedDate =
+          _month.year == _today.year &&
+                  _month.month == _today.month
+              ? DateTime(_today.year, _today.month, _today.day)
+              : DateTime(_month.year, _month.month, 1);
     });
 
     _loadCalendar();
@@ -169,11 +149,7 @@ class _FastingCalendarState extends State<FastingCalendar> {
     setState(() {
       _today = DateTime.now();
       _month = DateTime(_today.year, _today.month);
-      _selectedDate = DateTime(
-        _today.year,
-        _today.month,
-        _today.day,
-      );
+      _selectedDate = DateTime(_today.year, _today.month, _today.day);
     });
 
     _loadCalendar();
@@ -181,7 +157,6 @@ class _FastingCalendarState extends State<FastingCalendar> {
 
   List<Map<String, dynamic>> get _days {
     final raw = _calendar?['days'];
-
     if (raw is! List) return [];
 
     return raw
@@ -251,20 +226,15 @@ class _FastingCalendarState extends State<FastingCalendar> {
 
     if (schedules is Map) {
       for (final entry in schedules.entries) {
-        final value = entry.value;
-
-        if (value is Map) {
-          final item = Map<String, dynamic>.from(value);
+        if (entry.value is Map) {
+          final item = Map<String, dynamic>.from(entry.value);
           item.putIfAbsent('religion', () => entry.key);
           result.add(item);
         }
       }
     }
 
-    if (result.isEmpty) {
-      result.add(day);
-    }
-
+    if (result.isEmpty) result.add(day);
     return result;
   }
 
@@ -273,9 +243,11 @@ class _FastingCalendarState extends State<FastingCalendar> {
         item['title'] ??
         item['fastName'] ??
         item['fast_name'] ??
-        item['period'] ??
-        item['religion'] ??
-        'Fasting day';
+        item['period'];
+
+    if (value == null || value.toString().trim().isEmpty) {
+      return _t('fasting_day');
+    }
 
     return value.toString();
   }
@@ -289,29 +261,29 @@ class _FastingCalendarState extends State<FastingCalendar> {
       return direct.toString();
     }
 
-    final start = item['startTime'] ??
-        item['start_time'] ??
-        item['fajr'];
-
-    final end = item['endTime'] ??
-        item['end_time'] ??
-        item['maghrib'];
+    final start =
+        item['startTime'] ?? item['start_time'] ?? item['fajr'];
+    final end =
+        item['endTime'] ?? item['end_time'] ?? item['maghrib'];
 
     if (start == null || end == null) {
-      return 'Duration unavailable';
+      return _t('duration_unavailable');
     }
 
     final startMinutes = _minutes(start.toString());
     final endMinutes = _minutes(end.toString());
 
     if (startMinutes == null || endMinutes == null) {
-      return 'From $start to $end';
+      return '${_t('from')} $start ${_t('to')} $end';
     }
 
     var difference = endMinutes - startMinutes;
     if (difference < 0) difference += 24 * 60;
 
-    return '${difference ~/ 60}h ${difference % 60}m';
+    final hours = difference ~/ 60;
+    final minutes = difference % 60;
+
+    return '$hours ${_t('hours_short')} $minutes ${_t('minutes_short')}';
   }
 
   int? _minutes(String time) {
@@ -336,28 +308,32 @@ class _FastingCalendarState extends State<FastingCalendar> {
       case 'orthodox':
       case 'ethiopian_orthodox':
       case 'ethiopian orthodox':
-        return 'Ethiopian Orthodox';
+      case 'christian':
+        return _t('ethiopian_orthodox');
       case 'islam':
       case 'islamic':
       case 'muslim':
-        return 'Islamic';
+        return _t('islamic');
+      case 'both':
+        return _t('both_traditions');
       default:
         return value;
     }
   }
 
   String get _todayStatus {
-    if (_loading) return 'Checking today’s fasting status…';
-    if (_error != null) return 'Today’s fasting status is unavailable.';
+    if (_loading) return _t('checking_fasting_status');
+    if (_error != null) return _t('fasting_status_unavailable');
 
     final todayData = _dayData(_today);
 
     if (todayData == null) {
-      return 'No fasting schedule is available for today.';
+      return _t('no_schedule_today');
     }
 
     if (_isFasting(todayData)) {
       final details = _scheduleDetails(todayData);
+
       final names = details
           .where((item) =>
               _flagIsTrue(item['isFasting']) ||
@@ -369,23 +345,47 @@ class _FastingCalendarState extends State<FastingCalendar> {
           .toList();
 
       return names.isEmpty
-          ? 'Today is a fasting day.'
-          : 'Today is a fasting day: ${names.join(', ')}';
+          ? _t('today_is_fasting')
+          : '${_t('today_is_fasting')}: ${names.join(', ')}';
     }
 
-    return 'No fasting day is listed for today.';
+    return _t('no_fasting_today');
+  }
+
+  String _monthName(int month) {
+    const keys = [
+      'month_january',
+      'month_february',
+      'month_march',
+      'month_april',
+      'month_may',
+      'month_june',
+      'month_july',
+      'month_august',
+      'month_september',
+      'month_october',
+      'month_november',
+      'month_december',
+    ];
+
+    return _t(keys[month - 1]);
   }
 
   @override
   Widget build(BuildContext context) {
-    final firstWeekday =
-        DateTime(_month.year, _month.month, 1).weekday;
-    final daysInMonth =
-        DateTime(_month.year, _month.month + 1, 0).day;
+    // Rebuild this screen whenever the language toggle changes.
+    return AnimatedBuilder(
+      animation: AppLocalization.instance,
+      builder: (context, _) => _buildCalendar(context),
+    );
+  }
 
-    final selected = _selectedDate == null
-        ? null
-        : _dayData(_selectedDate!);
+  Widget _buildCalendar(BuildContext context) {
+    final firstWeekday = DateTime(_month.year, _month.month, 1).weekday;
+    final daysInMonth = DateTime(_month.year, _month.month + 1, 0).day;
+
+    final selected =
+        _selectedDate == null ? null : _dayData(_selectedDate!);
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -419,32 +419,32 @@ class _FastingCalendarState extends State<FastingCalendar> {
                 ),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Fasting Calendar',
-                      style: TextStyle(
+                      _t('fasting_calendar'),
+                      style: const TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF1C1917),
                       ),
                     ),
                     Text(
-                      'Ethiopian Orthodox and Islamic fasts',
-                      style: TextStyle(fontSize: 12, color: muted),
+                      _t('fasting_calendar_subtitle'),
+                      style: const TextStyle(fontSize: 12, color: muted),
                     ),
                   ],
                 ),
               ),
               IconButton(
-                tooltip: 'Go to today',
+                tooltip: _t('go_to_today'),
                 onPressed: _loading ? null : _goToToday,
                 icon: const Icon(Icons.today_rounded),
               ),
               IconButton(
-                tooltip: 'Refresh calendar',
+                tooltip: _t('refresh_calendar'),
                 onPressed: _loading ? null : _loadCalendar,
                 icon: const Icon(Icons.refresh_rounded),
               ),
@@ -453,7 +453,6 @@ class _FastingCalendarState extends State<FastingCalendar> {
 
           const SizedBox(height: 14),
 
-          // Today's fasting status.
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -464,18 +463,15 @@ class _FastingCalendarState extends State<FastingCalendar> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(
-                  Icons.spa_rounded,
-                  color: Color(0xFFB45309),
-                ),
+                const Icon(Icons.spa_rounded, color: Color(0xFFB45309)),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Today’s Fasting Status',
-                        style: TextStyle(
+                      Text(
+                        _t('todays_fasting_status'),
+                        style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
                           color: brown,
@@ -493,7 +489,8 @@ class _FastingCalendarState extends State<FastingCalendar> {
                       if (_profilePractice != null) ...[
                         const SizedBox(height: 5),
                         Text(
-                          'Profile practice: $_profilePractice',
+                          '${_t('profile_practice')}: '
+                          '${_prettyReligion(_profilePractice!)}',
                           style: const TextStyle(
                             fontSize: 11,
                             color: muted,
@@ -511,24 +508,24 @@ class _FastingCalendarState extends State<FastingCalendar> {
 
           DropdownButtonFormField<String>(
             value: _religion,
-            decoration: const InputDecoration(
-              labelText: 'Fasting tradition',
-              prefixIcon: Icon(Icons.filter_list_rounded),
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: _t('fasting_tradition'),
+              prefixIcon: const Icon(Icons.filter_list_rounded),
+              border: const OutlineInputBorder(),
               isDense: true,
             ),
-            items: const [
+            items: [
               DropdownMenuItem(
                 value: 'both',
-                child: Text('Both traditions'),
+                child: Text(_t('both_traditions')),
               ),
               DropdownMenuItem(
                 value: 'orthodox',
-                child: Text('Ethiopian Orthodox'),
+                child: Text(_t('ethiopian_orthodox')),
               ),
               DropdownMenuItem(
                 value: 'islam',
-                child: Text('Islamic'),
+                child: Text(_t('islamic')),
               ),
             ],
             onChanged: (value) {
@@ -543,7 +540,7 @@ class _FastingCalendarState extends State<FastingCalendar> {
           Row(
             children: [
               IconButton(
-                tooltip: 'Previous month',
+                tooltip: _t('previous_month'),
                 onPressed: _loading ? null : () => _changeMonth(-1),
                 icon: const Icon(Icons.chevron_left_rounded),
               ),
@@ -559,7 +556,7 @@ class _FastingCalendarState extends State<FastingCalendar> {
                 ),
               ),
               IconButton(
-                tooltip: 'Next month',
+                tooltip: _t('next_month'),
                 onPressed: _loading ? null : () => _changeMonth(1),
                 icon: const Icon(Icons.chevron_right_rounded),
               ),
@@ -568,15 +565,15 @@ class _FastingCalendarState extends State<FastingCalendar> {
 
           const SizedBox(height: 8),
 
-          const Row(
+          Row(
             children: [
-              _WeekdayLabel('Mon'),
-              _WeekdayLabel('Tue'),
-              _WeekdayLabel('Wed'),
-              _WeekdayLabel('Thu'),
-              _WeekdayLabel('Fri'),
-              _WeekdayLabel('Sat'),
-              _WeekdayLabel('Sun'),
+              _WeekdayLabel(_t('weekday_mon')),
+              _WeekdayLabel(_t('weekday_tue')),
+              _WeekdayLabel(_t('weekday_wed')),
+              _WeekdayLabel(_t('weekday_thu')),
+              _WeekdayLabel(_t('weekday_fri')),
+              _WeekdayLabel(_t('weekday_sat')),
+              _WeekdayLabel(_t('weekday_sun')),
             ],
           ),
 
@@ -592,7 +589,7 @@ class _FastingCalendarState extends State<FastingCalendar> {
           else if (_error != null)
             _message(
               icon: Icons.cloud_off_rounded,
-              text: 'Could not load the fasting calendar.',
+              text: _t('could_not_load_calendar'),
               detail: _error!,
               retry: _loadCalendar,
             )
@@ -600,10 +597,8 @@ class _FastingCalendarState extends State<FastingCalendar> {
             GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount:
-                  ((firstWeekday - 1 + daysInMonth + 6) ~/ 7) * 7,
-              gridDelegate:
-                  const SliverGridDelegateWithFixedCrossAxisCount(
+              itemCount: ((firstWeekday - 1 + daysInMonth + 6) ~/ 7) * 7,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 7,
                 mainAxisSpacing: 5,
                 crossAxisSpacing: 5,
@@ -616,8 +611,7 @@ class _FastingCalendarState extends State<FastingCalendar> {
                   return const SizedBox.shrink();
                 }
 
-                final date =
-                    DateTime(_month.year, _month.month, dayNumber);
+                final date = DateTime(_month.year, _month.month, dayNumber);
                 final data = _dayData(date);
                 final fasting = _isFasting(data);
                 final isSelected = _selectedDate != null &&
@@ -652,10 +646,9 @@ class _FastingCalendarState extends State<FastingCalendar> {
                         Text(
                           '$dayNumber',
                           style: TextStyle(
-                            fontWeight:
-                                fasting || isToday || isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.w500,
+                            fontWeight: fasting || isToday || isSelected
+                                ? FontWeight.bold
+                                : FontWeight.w500,
                             color: isSelected ? Colors.white : brown,
                           ),
                         ),
@@ -681,18 +674,18 @@ class _FastingCalendarState extends State<FastingCalendar> {
 
           const SizedBox(height: 12),
 
-          const Wrap(
+          Wrap(
             spacing: 14,
             runSpacing: 8,
             children: [
               _Legend(
-                color: Color(0xFFD97706),
-                label: 'Fasting day',
+                color: const Color(0xFFD97706),
+                label: _t('fasting_day'),
               ),
-              _Legend(color: brown, label: 'Selected day'),
+              _Legend(color: brown, label: _t('selected_day')),
               _Legend(
-                color: Color(0xFFB45309),
-                label: 'Today',
+                color: const Color(0xFFB45309),
+                label: _t('today'),
               ),
             ],
           ),
@@ -703,10 +696,10 @@ class _FastingCalendarState extends State<FastingCalendar> {
 
           Text(
             _selectedDate == null
-                ? 'Select a day'
+                ? _t('select_a_day')
                 : '${_monthName(_selectedDate!.month)} '
                     '${_selectedDate!.day}, ${_selectedDate!.year}'
-                    '${_dateKey(_selectedDate!) == _dateKey(_today) ? ' · Today' : ''}',
+                    '${_dateKey(_selectedDate!) == _dateKey(_today) ? ' · ${_t('today')}' : ''}',
             style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.bold,
@@ -720,9 +713,8 @@ class _FastingCalendarState extends State<FastingCalendar> {
               selected != null &&
               _isFasting(selected)) ...[
             ..._scheduleDetails(selected).map((item) {
-              final religion = _prettyReligion(
-                (item['religion'] ?? '').toString(),
-              );
+              final religion =
+                  _prettyReligion((item['religion'] ?? '').toString());
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 9),
@@ -757,10 +749,7 @@ class _FastingCalendarState extends State<FastingCalendar> {
                       const SizedBox(height: 4),
                       Text(
                         religion,
-                        style: const TextStyle(
-                          color: muted,
-                          fontSize: 12,
-                        ),
+                        style: const TextStyle(color: muted, fontSize: 12),
                       ),
                     ],
                     const SizedBox(height: 6),
@@ -796,20 +785,17 @@ class _FastingCalendarState extends State<FastingCalendar> {
               ),
               child: Text(
                 selected == null
-                    ? 'No schedule details were returned for this date.'
-                    : 'No fasting day is listed for this date.',
-                style: const TextStyle(
-                  color: muted,
-                  fontSize: 12,
-                ),
+                    ? _t('no_schedule_for_date')
+                    : _t('no_fasting_for_date'),
+                style: const TextStyle(color: muted, fontSize: 12),
               ),
             ),
 
           if (_calendar?['apiStatus'] is Map) ...[
             const SizedBox(height: 10),
-            const Text(
-              'Schedule source status',
-              style: TextStyle(
+            Text(
+              _t('schedule_source_status'),
+              style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
                 color: muted,
@@ -864,29 +850,11 @@ class _FastingCalendarState extends State<FastingCalendar> {
           OutlinedButton.icon(
             onPressed: retry,
             icon: const Icon(Icons.refresh),
-            label: const Text('Try again'),
+            label: Text(_t('try_again')),
           ),
         ],
       ),
     );
-  }
-
-  String _monthName(int month) {
-    const names = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-    return names[month - 1];
   }
 }
 

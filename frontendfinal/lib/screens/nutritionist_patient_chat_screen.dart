@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_client.dart';
+import '../services/app_localization.dart';
 
 class NutritionistPatientChatScreen extends StatefulWidget {
   final String patientId;
@@ -18,26 +19,28 @@ class NutritionistPatientChatScreen extends StatefulWidget {
 
 class _NutritionistPatientChatScreenState
     extends State<NutritionistPatientChatScreen> {
-  final TextEditingController _messageController = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
+  final TextEditingController _messageController =
+      TextEditingController();
+  final ScrollController _scrollController =
+      ScrollController();
 
   List<dynamic> _messages = [];
   bool _isLoading = true;
   bool _isSending = false;
 
-  // ------------------------------------------------------------
-  // ETHIOPIAN EARTHY BROWN THEME PALETTE (MATCHING SCREENSHOT)
-  // ------------------------------------------------------------
-  static const Color primaryBrown = Color(0xFF7A3E1D);    // Warm Roasted Terracotta
-  static const Color darkBrown = Color(0xFF4A2411);       // Deep Roasted Coffee
-  static const Color lightBrown = Color(0xFFF3EDE4);      // Warm Cream / Linen
-  static const Color lightBrownAccent = Color(0xFFE7DDD1);// Soft Border Beige
-  static const Color background = Color(0xFFF8F4EE);      // Warm Linen Canvas
+  static const Color primaryBrown = Color(0xFF7A3E1D);
+  static const Color darkBrown = Color(0xFF4A2411);
+  static const Color lightBrown = Color(0xFFF3EDE4);
+  static const Color lightBrownAccent = Color(0xFFE7DDD1);
+  static const Color background = Color(0xFFF8F4EE);
   static const Color surfaceWhite = Colors.white;
-  static const Color textDark = Color(0xFF2C1810);        // Deep Coffee Charcoal
-  static const Color textMuted = Color(0xFF7C6D65);       // Warm Muted Umber
-  static const Color textLight = Color(0xFFEADBCE);       // Subtitle Cream Text
-  static const Color borderColor = Color(0xFFE7DDD1);     // Warm Outline Beige
+  static const Color textDark = Color(0xFF2C1810);
+  static const Color textMuted = Color(0xFF7C6D65);
+  static const Color textLight = Color(0xFFEADBCE);
+  static const Color borderColor = Color(0xFFE7DDD1);
+
+  String _t(String key) =>
+      AppLocalization.instance.tr(key);
 
   @override
   void initState() {
@@ -59,7 +62,8 @@ class _NutritionistPatientChatScreenState
   Future<void> _loadMessages() async {
     try {
       final response = await ApiClient.get(
-        '/supervision/dietitian/patients/${widget.patientId}/messages',
+        '/supervision/dietitian/patients/'
+        '${widget.patientId}/messages',
       );
 
       if (!mounted) return;
@@ -75,13 +79,8 @@ class _NutritionistPatientChatScreenState
 
       setState(() => _isLoading = false);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to load messages: $e'),
-          backgroundColor: const Color(0xFFDC2626),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
+      _showError(
+        '${_t('chat_load_failed')}: $e',
       );
     }
   }
@@ -95,13 +94,12 @@ class _NutritionistPatientChatScreenState
 
     if (message.isEmpty || _isSending) return;
 
-    setState(() {
-      _isSending = true;
-    });
+    setState(() => _isSending = true);
 
     try {
       final response = await ApiClient.post(
-        '/supervision/dietitian/patients/${widget.patientId}/messages',
+        '/supervision/dietitian/patients/'
+        '${widget.patientId}/messages',
         {
           'message': message,
         },
@@ -125,21 +123,27 @@ class _NutritionistPatientChatScreenState
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to send message: $e'),
-          backgroundColor: const Color(0xFFDC2626),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
+      _showError(
+        '${_t('chat_send_failed')}: $e',
       );
     } finally {
       if (mounted) {
-        setState(() {
-          _isSending = false;
-        });
+        setState(() => _isSending = false);
       }
     }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: const Color(0xFFDC2626),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+    );
   }
 
   // ------------------------------------------------------------
@@ -159,28 +163,36 @@ class _NutritionistPatientChatScreenState
   }
 
   // ------------------------------------------------------------
-  // INITIALS HELPER
+  // INITIALS
   // ------------------------------------------------------------
 
   String _getInitials(String name) {
     if (name.trim().isEmpty) return 'P';
+
     final parts = name.trim().split(RegExp(r'\s+'));
-    if (parts.length == 1) return parts.first[0].toUpperCase();
+
+    if (parts.length == 1) {
+      return parts.first[0].toUpperCase();
+    }
+
     return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
   }
 
   // ------------------------------------------------------------
-  // BUILD
+  // BUILD — REACT TO LANGUAGE TOGGLE
   // ------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: AppLocalization.instance,
+      builder: (context, _) => _buildScreen(),
+    );
+  }
+
+  Widget _buildScreen() {
     return Scaffold(
       backgroundColor: background,
-
-      // --------------------------------------------------------
-      // WARM BROWN APP BAR (MATCHING SCREENSHOT HEADER)
-      // --------------------------------------------------------
       appBar: AppBar(
         backgroundColor: darkBrown,
         foregroundColor: Colors.white,
@@ -189,9 +201,13 @@ class _NutritionistPatientChatScreenState
         shadowColor: Colors.black.withOpacity(0.1),
         titleSpacing: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.white),
+          icon: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            size: 18,
+            color: Colors.white,
+          ),
           onPressed: () => Navigator.of(context).pop(),
-          tooltip: 'Back to dashboard',
+          tooltip: _t('chat_back'),
         ),
         title: Row(
           children: [
@@ -204,7 +220,10 @@ class _NutritionistPatientChatScreenState
                   decoration: BoxDecoration(
                     color: primaryBrown,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFA6633E), width: 1.2),
+                    border: Border.all(
+                      color: const Color(0xFFA6633E),
+                      width: 1.2,
+                    ),
                   ),
                   child: Center(
                     child: Text(
@@ -224,9 +243,12 @@ class _NutritionistPatientChatScreenState
                     width: 10,
                     height: 10,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF22C55E), // Online green indicator
+                      color: const Color(0xFF22C55E),
                       shape: BoxShape.circle,
-                      border: Border.all(color: darkBrown, width: 2),
+                      border: Border.all(
+                        color: darkBrown,
+                        width: 2,
+                      ),
                     ),
                   ),
                 ),
@@ -249,9 +271,9 @@ class _NutritionistPatientChatScreenState
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 1),
-                  const Text(
-                    'Clinical Consultation • EthioWellness AI',
-                    style: TextStyle(
+                  Text(
+                    _t('clinical_consultation_subtitle'),
+                    style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
                       color: textLight,
@@ -273,8 +295,12 @@ class _NutritionistPatientChatScreenState
                       color: Colors.white,
                     ),
                   )
-                : const Icon(Icons.refresh_rounded, size: 20, color: Colors.white),
-            tooltip: 'Refresh conversation',
+                : const Icon(
+                    Icons.refresh_rounded,
+                    size: 20,
+                    color: Colors.white,
+                  ),
+            tooltip: _t('refresh_conversation'),
             onPressed: _isLoading ? null : _loadMessages,
             style: IconButton.styleFrom(
               backgroundColor: primaryBrown,
@@ -286,51 +312,58 @@ class _NutritionistPatientChatScreenState
           const SizedBox(width: 14),
         ],
       ),
-
-      // --------------------------------------------------------
-      // BODY
-      // --------------------------------------------------------
       body: Column(
         children: [
-          // Clinical confidentiality banner in warm linen styling
+          // Confidentiality banner.
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 8,
+            ),
             decoration: BoxDecoration(
               color: lightBrown,
-              border: Border(bottom: BorderSide(color: borderColor)),
+              border: Border(
+                bottom: BorderSide(color: borderColor),
+              ),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.lock_outline_rounded, size: 13, color: textMuted),
+                const Icon(
+                  Icons.lock_outline_rounded,
+                  size: 13,
+                  color: textMuted,
+                ),
                 const SizedBox(width: 6),
-                const Text(
-                  'End-to-end encrypted clinical supervision chat',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: textMuted,
+                Flexible(
+                  child: Text(
+                    _t('clinical_chat_confidentiality'),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: textMuted,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-
           Expanded(
             child: _isLoading
-                ? const Center(
+                ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        CircularProgressIndicator(
+                        const CircularProgressIndicator(
                           color: darkBrown,
                           strokeWidth: 2.5,
                         ),
-                        SizedBox(height: 14),
+                        const SizedBox(height: 14),
                         Text(
-                          'Loading consultation history...',
-                          style: TextStyle(
+                          _t('loading_consultation_history'),
+                          style: const TextStyle(
                             color: textMuted,
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
@@ -343,7 +376,6 @@ class _NutritionistPatientChatScreenState
                     ? _buildEmptyConversation()
                     : _buildMessages(),
           ),
-
           _buildMessageInput(),
         ],
       ),
@@ -351,7 +383,7 @@ class _NutritionistPatientChatScreenState
   }
 
   // ------------------------------------------------------------
-  // EMPTY CONVERSATION (WARM ETHIOPIAN CARD STYLE)
+  // EMPTY CONVERSATION
   // ------------------------------------------------------------
 
   Widget _buildEmptyConversation() {
@@ -390,7 +422,8 @@ class _NutritionistPatientChatScreenState
               ),
               const SizedBox(height: 16),
               Text(
-                'Start Consultation with ${widget.patientName}',
+                '${_t('start_consultation_with')} '
+                '${widget.patientName}',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 16,
@@ -400,10 +433,10 @@ class _NutritionistPatientChatScreenState
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Send dietary guidance, calibrate Teff Injera portions, or prescribe micronutrient modifications.',
+              Text(
+                _t('consultation_empty_description'),
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   color: textMuted,
                   fontSize: 12.5,
                   height: 1.45,
@@ -415,9 +448,9 @@ class _NutritionistPatientChatScreenState
                 runSpacing: 8,
                 alignment: WrapAlignment.center,
                 children: [
-                  _quickTipChip('Anemia / Iron Support'),
-                  _quickTipChip('Orthodox Fasting Plan'),
-                  _quickTipChip('Shiro & Protein Intake'),
+                  _quickTipChip(_t('tip_anemia_iron')),
+                  _quickTipChip(_t('tip_orthodox_fasting')),
+                  _quickTipChip(_t('tip_shiro_protein')),
                 ],
               ),
             ],
@@ -429,7 +462,10 @@ class _NutritionistPatientChatScreenState
 
   Widget _quickTipChip(String label) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 5,
+      ),
       decoration: BoxDecoration(
         color: lightBrown,
         borderRadius: BorderRadius.circular(16),
@@ -459,32 +495,32 @@ class _NutritionistPatientChatScreenState
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
         itemCount: _messages.length,
         itemBuilder: (context, index) {
-          final message = _messages[index];
-          return _buildMessageBubble(message);
+          return _buildMessageBubble(_messages[index]);
         },
       ),
     );
   }
 
   // ------------------------------------------------------------
-  // MESSAGE BUBBLE (WARM BROWN ACCENTS)
+  // MESSAGE BUBBLE
   // ------------------------------------------------------------
 
   Widget _buildMessageBubble(dynamic message) {
     final senderRole =
-        (message['senderRole'] ?? message['role'] ?? '').toString();
+        (message['senderRole'] ?? message['role'] ?? '')
+            .toString()
+            .toLowerCase();
 
     final isNutritionist =
-        senderRole.toLowerCase() == 'nutritionist' ||
-        senderRole.toLowerCase() == 'dietitian';
+        senderRole == 'nutritionist' ||
+        senderRole == 'dietitian';
 
     final text =
         (message['message'] ?? message['content'] ?? '').toString();
 
-    final createdAt =
-        DateTime.tryParse(
-          (message['createdAt'] ?? '').toString(),
-        )?.toLocal();
+    final createdAt = DateTime.tryParse(
+      (message['createdAt'] ?? '').toString(),
+    )?.toLocal();
 
     final time = createdAt == null
         ? ''
@@ -492,7 +528,9 @@ class _NutritionistPatientChatScreenState
             '${createdAt.minute.toString().padLeft(2, '0')}';
 
     return Align(
-      alignment: isNutritionist ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: isNutritionist
+          ? Alignment.centerRight
+          : Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.78,
@@ -521,8 +559,9 @@ class _NutritionistPatientChatScreenState
           ],
         ),
         child: Column(
-          crossAxisAlignment:
-              isNutritionist ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isNutritionist
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             if (!isNutritionist)
               Padding(
@@ -536,7 +575,6 @@ class _NutritionistPatientChatScreenState
                   ),
                 ),
               ),
-
             Text(
               text,
               style: TextStyle(
@@ -546,7 +584,6 @@ class _NutritionistPatientChatScreenState
                 color: isNutritionist ? Colors.white : textDark,
               ),
             ),
-
             if (time.isNotEmpty) ...[
               const SizedBox(height: 4),
               Row(
@@ -578,14 +615,17 @@ class _NutritionistPatientChatScreenState
   }
 
   // ------------------------------------------------------------
-  // MESSAGE INPUT (WARM ETHIOPIAN PILL DESIGN)
+  // MESSAGE INPUT
   // ------------------------------------------------------------
 
   Widget _buildMessageInput() {
     return SafeArea(
       top: false,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 10,
+        ),
         decoration: BoxDecoration(
           color: surfaceWhite,
           border: Border(
@@ -618,13 +658,13 @@ class _NutritionistPatientChatScreenState
                     fontSize: 13.5,
                     color: textDark,
                   ),
-                  decoration: const InputDecoration(
-                    hintText: 'Type dietary guidance or clinical notes...',
-                    hintStyle: TextStyle(
+                  decoration: InputDecoration(
+                    hintText: _t('clinical_message_hint'),
+                    hintStyle: const TextStyle(
                       fontSize: 13,
                       color: textMuted,
                     ),
-                    contentPadding: EdgeInsets.symmetric(
+                    contentPadding: const EdgeInsets.symmetric(
                       horizontal: 16,
                       vertical: 11,
                     ),
@@ -650,6 +690,7 @@ class _NutritionistPatientChatScreenState
                 ],
               ),
               child: IconButton(
+                tooltip: _t('send_message'),
                 onPressed: _isSending ? null : _sendMessage,
                 icon: _isSending
                     ? const SizedBox(

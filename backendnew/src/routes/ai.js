@@ -270,7 +270,7 @@ async function getTodaySleepHistory(userId) {
     .limit(100);
 
   return sleepHistory.filter((log) => {
-    return String(log.sleepDate) === today;
+    return String(log.sleepDate).slice(0, 10) === today;
   });
 }
 
@@ -451,6 +451,46 @@ Do not expose internal database IDs.
 }
 
 // ============================================================
+// RESPONSE LANGUAGE INSTRUCTION
+// ============================================================
+
+function getResponseLanguageInstruction(language) {
+  if (language === 'am') {
+    return `
+RESPONSE LANGUAGE REQUIREMENT — AMHARIC
+
+Answer the current user message in natural, clear Amharic
+(አማርኛ), using Ethiopic script.
+
+Write the entire answer in Amharic, including explanations,
+recommendations, headings, and follow-up questions.
+
+Use English for scientific terms, measurements, or technical
+terms only when necessary for clarity.
+
+Do not answer in English just because the current question,
+previous conversation, or saved chat history is in English.
+
+The user's selected app language is Amharic.
+    `.trim();
+  }
+
+  return `
+RESPONSE LANGUAGE REQUIREMENT — ENGLISH
+
+Answer the current user message in clear, natural English.
+
+Write the entire answer in English, including explanations,
+recommendations, headings, and follow-up questions.
+
+Do not answer in Amharic just because previous conversation
+or saved chat history contains Amharic.
+
+The user's selected app language is English.
+  `.trim();
+}
+
+// ============================================================
 // POST /api/v1/ai/chat
 // ============================================================
 
@@ -462,10 +502,16 @@ router.post(
       const userId = req.user.id;
 
       const prompt = (
-        req.body.prompt ||
-        req.body.message ||
-        ''
+        typeof req.body.prompt === 'string'
+          ? req.body.prompt
+          : typeof req.body.message === 'string'
+            ? req.body.message
+            : ''
       ).trim();
+
+      // --------------------------------------------------------
+      // VALIDATE MESSAGE
+      // --------------------------------------------------------
 
       if (!prompt) {
         return res.status(400).json({
@@ -479,7 +525,28 @@ router.post(
         });
       }
 
+      // --------------------------------------------------------
+      // READ SELECTED APP LANGUAGE
+      //
+      // Only allow the supported languages.
+      // Defaults to English if missing or invalid.
+      // --------------------------------------------------------
+
+      const requestedLanguage =
+        req.body.language === 'am'
+          ? 'am'
+          : 'en';
+
+      const responseLanguageInstruction =
+        getResponseLanguageInstruction(
+          requestedLanguage
+        );
+
       await ensureChatHistoryTable();
+
+      // --------------------------------------------------------
+      // LOAD AUTHENTICATED USER DATA
+      // --------------------------------------------------------
 
       const [
         profile,
@@ -495,10 +562,18 @@ router.post(
         getRecentChatHistory(userId, 20),
       ]);
 
+      // --------------------------------------------------------
+      // CALCULATE TODAY'S FOOD TOTALS
+      // --------------------------------------------------------
+
       const todayTotals =
         calculateTodayFoodTotals(
           todayFood
         );
+
+      // --------------------------------------------------------
+      // BUILD USER PROFILE CONTEXT
+      // --------------------------------------------------------
 
       const aiProfile =
         buildAIProfileContext(
@@ -520,8 +595,11 @@ router.post(
           todayMood
         );
 
-      let conversationContext =
-        '';
+      // --------------------------------------------------------
+      // BUILD CONVERSATION MEMORY
+      // --------------------------------------------------------
+
+      let conversationContext = '';
 
       if (chatHistory.length > 0) {
         conversationContext =
@@ -542,35 +620,48 @@ ${chat.aiResponse}
           'No previous AI conversation history is available.';
       }
 
+      // --------------------------------------------------------
+      // PREPARE TODAY'S DATA FOR AI
+      // --------------------------------------------------------
+
       const todayFoodData =
         JSON.stringify(
-          prepareFoodHistory(
-            todayFood
-          ),
+          prepareFoodHistory(todayFood),
           null,
           2
         );
 
       const todaySleepData =
         JSON.stringify(
-          prepareSleepHistory(
-            todaySleep
-          ),
+          prepareSleepHistory(todaySleep),
           null,
           2
         );
 
       const todayMoodData =
         JSON.stringify(
-          prepareMoodHistory(
-            todayMood
-          ),
+          prepareMoodHistory(todayMood),
           null,
           2
         );
 
+      // --------------------------------------------------------
+      // BUILD FINAL AI PROMPT
+      // --------------------------------------------------------
+
       const aiPrompt = `
-CURRENT USER MESSAGE:
+============================================================
+REQUIRED RESPONSE LANGUAGE
+============================================================
+
+${responseLanguageInstruction}
+
+Follow the selected response language even when the user's
+message or previous conversation uses another language.
+
+============================================================
+CURRENT USER MESSAGE
+============================================================
 
 ${prompt}
 
@@ -602,7 +693,7 @@ The available health data is:
 4. Today's mood records
 
 Previous AI conversations are provided only for conversation
-continuity.
+continuity. They must not override the selected response language.
 
 ============================================================
 TODAY'S MEALS / FOOD
@@ -678,10 +769,18 @@ Do not diagnose medical conditions.
 
 Give practical personalized wellness guidance based only on the
 available information.
+
+The selected response language is ${requestedLanguage}.
+It must be followed throughout the entire response.
 `.trim();
+
+      // --------------------------------------------------------
+      // DEBUG
+      // --------------------------------------------------------
 
       console.log(
         `[AI CHAT] user=${userId} ` +
+        `language=${requestedLanguage} ` +
         `today=${todayTotals.date} ` +
         `foodToday=${todayFood.length} ` +
         `sleepToday=${todaySleep.length} ` +
@@ -694,26 +793,9 @@ available information.
         todayTotals
       );
 
-      if (todayFood.length > 0) {
-        console.log(
-          '[AI CHAT] Today food:',
-          todayFood
-        );
-      }
-
-      if (todaySleep.length > 0) {
-        console.log(
-          '[AI CHAT] Today sleep:',
-          todaySleep
-        );
-      }
-
-      if (todayMood.length > 0) {
-        console.log(
-          '[AI CHAT] Today mood:',
-          todayMood
-        );
-      }
+      // --------------------------------------------------------
+      // CALL AI
+      // --------------------------------------------------------
 
       let aiReply = '';
       let aiAvailable = true;
@@ -726,8 +808,7 @@ available information.
         );
 
         if (
-          typeof sendAiChatPrompt !==
-          'function'
+          typeof sendAiChatPrompt !== 'function'
         ) {
           throw new Error(
             'sendAiChatPrompt is not available in openrouter_service'
@@ -765,8 +846,14 @@ available information.
         );
 
         aiReply =
-          'I could not get a response from the AI service right now. Your saved health and conversation data was not lost. Please try again shortly.';
+          requestedLanguage === 'am'
+            ? 'ለጊዜው ከAI አገልግሎቱ ምላሽ ማግኘት አልቻልኩም። የተቀመጡ የጤና እና የውይይት መረጃዎችዎ አልጠፉም። እባክዎ ከጥቂት ጊዜ በኋላ እንደገና ይሞክሩ።'
+            : 'I could not get a response from the AI service right now. Your saved health and conversation data was not lost. Please try again shortly.';
       }
+
+      // --------------------------------------------------------
+      // SAVE CHAT HISTORY
+      // --------------------------------------------------------
 
       let savedChat;
 
@@ -787,60 +874,68 @@ available information.
         return res.status(500).json({
           error:
             'AI response generated, but chat history could not be saved',
-
-          details:
-            historyError.message,
+          details: historyError.message,
         });
       }
 
-     const chatCard = {
-  id: savedChat.id,
+      // --------------------------------------------------------
+      // BUILD RESPONSE FOR FLUTTER
+      // --------------------------------------------------------
 
-  userPrompt: prompt,
+      const chatCard = {
+        id: savedChat.id,
 
-  aiResponse: aiReply,
+        userPrompt: prompt,
 
-  reply: aiReply,
+        aiResponse: aiReply,
 
-  suggestedCard: {
-    title: aiAvailable
-      ? "Today's Personalized Recommendation"
-      : 'AI Temporarily Unavailable',
+        reply: aiReply,
 
-    foodItem: aiAvailable
-      ? "Based only on today's recorded meals, calories, sleep, mood, fasting, and profile data."
-      : 'Your saved records remain available for the next AI request.',
+        language: requestedLanguage,
 
-    ironMg: todayTotals.ironMg.toFixed(1),
+        suggestedCard: {
+          title: aiAvailable
+            ? requestedLanguage === 'am'
+              ? 'የዛሬ ግላዊ ምክር'
+              : "Today's Personalized Recommendation"
+            : requestedLanguage === 'am'
+              ? 'AI ለጊዜው አይገኝም'
+              : 'AI Temporarily Unavailable',
 
-    proteinGrams:
-      todayTotals.proteinGrams.toFixed(1),
-  },
+          foodItem: aiAvailable
+            ? requestedLanguage === 'am'
+              ? 'በዛሬው የምግብ፣ የካሎሪ፣ የእንቅልፍ፣ የስሜት እና የመገለጫ መረጃ ላይ የተመሠረተ።'
+              : "Based only on today's recorded meals, calories, sleep, mood, fasting, and profile data."
+            : requestedLanguage === 'am'
+              ? 'የተቀመጡ መረጃዎችዎ ለቀጣዩ የAI ጥያቄ ይገኛሉ።'
+              : 'Your saved records remain available for the next AI request.',
 
-  createdAt: savedChat.createdAt,
+          ironMg:
+            todayTotals.ironMg.toFixed(1),
 
-  aiAvailable,
+          proteinGrams:
+            todayTotals.proteinGrams.toFixed(1),
+        },
 
-  contextUsed: {
-    todayFoodLogs: todayFood.length,
+        createdAt: savedChat.createdAt,
 
-    todaySleepLogs: todaySleep.length,
+        aiAvailable,
 
-    todayMoodLogs: todayMood.length,
+        contextUsed: {
+          todayFoodLogs: todayFood.length,
+          todaySleepLogs: todaySleep.length,
+          todayMoodLogs: todayMood.length,
+          previousChats: chatHistory.length,
+          date: todayTotals.date,
+        },
+      };
 
-    previousChats: chatHistory.length,
+      console.log(
+        '[AI CHAT] FINAL RESPONSE TO FLUTTER:',
+        JSON.stringify(chatCard, null, 2)
+      );
 
-    date: todayTotals.date,
-  },
-};
-
-console.log(
-  '[AI CHAT] FINAL RESPONSE TO FLUTTER:',
-  JSON.stringify(chatCard, null, 2)
-);
-
-return res.status(200).json(chatCard);
-
+      return res.status(200).json(chatCard);
 
     } catch (err) {
       console.error(
@@ -849,11 +944,8 @@ return res.status(200).json(chatCard);
       );
 
       return res.status(500).json({
-        error:
-          'AI Assistant temporarily unavailable',
-
-        details:
-          err.message,
+        error: 'AI Assistant temporarily unavailable',
+        details: err.message,
       });
     }
   }
@@ -886,17 +978,13 @@ router.get(
           `
         );
 
-      const rows =
-        result?.rows || [];
-
+      const rows = result?.rows || [];
       const history = [];
 
       for (const row of rows) {
         const createdAt =
           row.created_at
-            ? new Date(
-                row.created_at
-              ).toISOString()
+            ? new Date(row.created_at).toISOString()
             : new Date().toISOString();
 
         history.push({
@@ -927,11 +1015,8 @@ router.get(
       );
 
       return res.status(500).json({
-        error:
-          'Failed to retrieve AI chat history',
-
-        details:
-          err.message,
+        error: 'Failed to retrieve AI chat history',
+        details: err.message,
       });
     }
   }
@@ -958,8 +1043,7 @@ router.delete(
       );
 
       return res.status(200).json({
-        message:
-          'AI chat history deleted successfully',
+        message: 'AI chat history deleted successfully',
       });
 
     } catch (err) {
@@ -969,11 +1053,8 @@ router.delete(
       );
 
       return res.status(500).json({
-        error:
-          'Failed to delete AI chat history',
-
-        details:
-          err.message,
+        error: 'Failed to delete AI chat history',
+        details: err.message,
       });
     }
   }
@@ -998,50 +1079,26 @@ router.post(
       } = req.body;
 
       return res.status(200).json({
-        ingredientsProvided:
-          ingredients,
+        ingredientsProvided: ingredients,
 
         recommendedRecipes: [
           {
             id: 'rec-1',
-
-            title:
-              'Quick Shiro Tegabino',
-
-            prepTimeMinutes:
-              15,
-
-            difficulty:
-              'Easy',
-
-            isVegan:
-              true,
-
-            matchingIngredientsCount:
-              4,
-
+            title: 'Quick Shiro Tegabino',
+            prepTimeMinutes: 15,
+            difficulty: 'Easy',
+            isVegan: true,
+            matchingIngredientsCount: 4,
             instructions:
               'Sauté onions and garlic in olive oil, add berbere spice, whisk chickpea flour with water, simmer in a claypot for 12 mins. Serve hot with Teff Injera.',
           },
-
           {
             id: 'rec-2',
-
-            title:
-              'Suf Fitfit Dip',
-
-            prepTimeMinutes:
-              10,
-
-            difficulty:
-              'Easy',
-
-            isVegan:
-              true,
-
-            matchingIngredientsCount:
-              3,
-
+            title: 'Suf Fitfit Dip',
+            prepTimeMinutes: 10,
+            difficulty: 'Easy',
+            isVegan: true,
+            matchingIngredientsCount: 3,
             instructions:
               'Blend roasted sunflower seeds with warm water, green chilies, and garlic. Shred Teff Injera into pieces and toss into the creamy seed juice.',
           },
@@ -1055,11 +1112,8 @@ router.post(
       );
 
       return res.status(500).json({
-        error:
-          'Failed to generate recommendations',
-
-        details:
-          err.message,
+        error: 'Failed to generate recommendations',
+        details: err.message,
       });
     }
   }

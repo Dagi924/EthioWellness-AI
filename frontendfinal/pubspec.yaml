@@ -9,10 +9,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   http: ^1.6.0
   shared_preferences: ^2.5.5
   image_picker: ^1.2.3
-  intl: ^0.20.3
+  intl: ^0.20.2
   url_launcher: ^6.3.2
   jitsi_meet_flutter_sdk: ^13.2.0
 

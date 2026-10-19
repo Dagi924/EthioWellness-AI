@@ -1,12 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+
 import 'screens/login_screen.dart';
-import 'screens/main_shell_screen.dart';
 import 'screens/payment_success_screen.dart';
 import 'services/api_client.dart';
 import 'services/auth_service.dart';
+import 'services/app_localization.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Amharic as the default application language.
+  await AppLocalization.instance.initialize(
+    locale: const Locale('am'),
+  );
+
   runApp(const EthioNutriApp());
 }
 
@@ -15,52 +23,68 @@ class EthioNutriApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-  title: 'EthioNutri AI',
-  debugShowCheckedModeBanner: false,
+    return AnimatedBuilder(
+      animation: AppLocalization.instance,
+      builder: (context, _) {
+        final localization = AppLocalization.instance;
 
-  theme: ThemeData(
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: const Color(0xFF16A34A),
-      primary: const Color(0xFF16A34A),
-    ),
-    useMaterial3: true,
-  ),
+        return MaterialApp(
+          title: 'EthioNutri AI',
+          debugShowCheckedModeBanner: false,
 
-  initialRoute: '/',
+          // App language.
+          locale: localization.locale,
 
-  onGenerateRoute: (settings) {
-    final uri = Uri.parse(settings.name ?? '/');
+          // Supported languages.
+          supportedLocales: const [
+            Locale('am'),
+            Locale('en'),
+          ],
 
-    // ==========================================================
-    // CHAPA RETURN URL
-    // Example:
-    // http://localhost:3000/payment-success?tx_ref=ethionutri-tx-123
-    // ==========================================================
+          // Flutter's built-in localization support.
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
 
-    if (uri.path == '/payment-success') {
-      final txRef =
-          uri.queryParameters['tx_ref'] ??
-          uri.queryParameters['trx_ref'];
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF16A34A),
+              primary: const Color(0xFF16A34A),
+            ),
+            useMaterial3: true,
+          ),
 
-      return MaterialPageRoute(
-        builder: (_) => PaymentSuccessScreen(
-          txRef: txRef,
-        ),
-        settings: settings,
-      );
-    }
+          initialRoute: '/',
 
-    // ==========================================================
-    // NORMAL APP START
-    // ==========================================================
+          onGenerateRoute: (settings) {
+            final uri = Uri.parse(settings.name ?? '/');
 
-    return MaterialPageRoute(
-      builder: (_) => const AppBootstrap(),
-      settings: settings,
+            // Handle Chapa payment return URLs.
+            // Example: /payment-success?tx_ref=transaction-123
+            if (uri.path == '/payment-success') {
+              final txRef =
+                  uri.queryParameters['tx_ref'] ??
+                  uri.queryParameters['trx_ref'];
+
+              return MaterialPageRoute(
+                builder: (_) => PaymentSuccessScreen(
+                  txRef: txRef,
+                ),
+                settings: settings,
+              );
+            }
+
+            // Normal application startup.
+            return MaterialPageRoute(
+              builder: (_) => const AppBootstrap(),
+              settings: settings,
+            );
+          },
+        );
+      },
     );
-  },
-);
   }
 }
 
@@ -79,31 +103,47 @@ class _AppBootstrapState extends State<AppBootstrap> {
   }
 
   Future<void> _checkAuth() async {
-    final token = await ApiClient.getToken();
-    if (token != null && token.isNotEmpty) {
-      try {
-        final role = await AuthService.getUserRole();
-        if (mounted) {
+    try {
+      final token = await ApiClient.getToken();
+
+      if (token != null && token.isNotEmpty) {
+        try {
+          final role = await AuthService.getUserRole();
+
+          if (!mounted) return;
+
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => AuthService.getDashboardForRole(role)),
+            MaterialPageRoute(
+              builder: (_) =>
+                  AuthService.getDashboardForRole(role),
+            ),
           );
+
           return;
+        } catch (error) {
+          debugPrint('Authentication check failed: $error');
         }
-      } catch (_) {}
+      }
+    } catch (error) {
+      debugPrint('Token check failed: $error');
     }
 
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
-    }
+    if (!mounted) return;
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => const LoginScreen(),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
       body: Center(
-        child: CircularProgressIndicator(color: Color(0xFF16A34A)),
+        child: CircularProgressIndicator(
+          color: Color(0xFF16A34A),
+        ),
       ),
     );
   }

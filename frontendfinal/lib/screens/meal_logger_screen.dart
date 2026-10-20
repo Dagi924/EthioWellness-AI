@@ -12,7 +12,7 @@ import 'food_search_screen.dart';
 import 'chapa_payment_screen.dart';
 import 'nutritionist_screen.dart';
 import 'ai_chat_screen.dart';
-
+import 'package:ethionutri_mobile/widgets/medicine_reminder_widget.dart';
 class MealLoggerScreen extends StatefulWidget {
   const MealLoggerScreen({super.key});
 
@@ -1404,6 +1404,8 @@ Widget build(BuildContext context) {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      const MedicineReminderWidget(),
+                      const SizedBox(height: 20),
                       if (!isWide)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 14),

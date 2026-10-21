@@ -1,5 +1,13 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
 import 'api_client.dart';
 import 'app_localization.dart';
+
+// ============================================================================
+// AI CHAT RESPONSE
+// ============================================================================
 
 class AiChatResponse {
   final String reply;
@@ -24,6 +32,11 @@ class AiChatResponse {
     required this.aiAvailable,
   });
 }
+
+// ============================================================================
+// RECIPE RECOMMENDATION MODEL
+// Retained for compatibility with existing screens.
+// ============================================================================
 
 class RecipeRecommendation {
   final String title;
@@ -50,57 +63,45 @@ class RecipeRecommendation {
     Map<String, dynamic> json,
   ) {
     return RecipeRecommendation(
-      title:
-          json['title']?.toString() ?? 'Ethiopian Recipe',
-
-      description:
-          json['description']?.toString() ?? '',
-
-      ingredients:
-          json['ingredients'] is List
-              ? (json['ingredients'] as List)
-                  .map((e) => e.toString())
-                  .toList()
-              : [],
-
-      prepTimeMinutes:
-          json['prepTimeMinutes'] is num
-              ? (json['prepTimeMinutes'] as num).toInt()
-              : 20,
-
-      difficulty:
-          json['difficulty']?.toString() ?? 'Easy',
-
-      isVegan:
-          json['isVegan'] == true,
-
-      estimatedNutrition:
-          json['estimatedNutrition'] is Map
-              ? Map<String, dynamic>.from(
-                  json['estimatedNutrition'],
-                )
-              : {},
-
-      instructions:
-          json['instructions'] is List
-              ? (json['instructions'] as List)
-                  .map((e) => e.toString())
-                  .toList()
-              : [],
+      title: json['title']?.toString() ?? 'Ethiopian Recipe',
+      description: json['description']?.toString() ?? '',
+      ingredients: json['ingredients'] is List
+          ? (json['ingredients'] as List)
+              .map((e) => e.toString())
+              .toList()
+          : [],
+      prepTimeMinutes: json['prepTimeMinutes'] is num
+          ? (json['prepTimeMinutes'] as num).toInt()
+          : 20,
+      difficulty: json['difficulty']?.toString() ?? 'Easy',
+      isVegan: json['isVegan'] == true,
+      estimatedNutrition: json['estimatedNutrition'] is Map
+          ? Map<String, dynamic>.from(
+              json['estimatedNutrition'],
+            )
+          : {},
+      instructions: json['instructions'] is List
+          ? (json['instructions'] as List)
+              .map((e) => e.toString())
+              .toList()
+          : [],
     );
   }
 }
 
+// ============================================================================
+// AI SERVICE
+// ============================================================================
+
 class AiService {
   // ==========================================================================
-  // GET CURRENT RESPONSE LANGUAGE
+  // GET RESPONSE LANGUAGE
   // ==========================================================================
 
   static String _getResponseLanguage(
     String? languageCode,
   ) {
-    final selectedLanguage =
-        languageCode ??
+    final selectedLanguage = languageCode ??
         AppLocalization.instance.locale.languageCode;
 
     return selectedLanguage == 'am' ? 'am' : 'en';
@@ -121,11 +122,9 @@ class AiService {
       throw Exception('Message cannot be empty');
     }
 
-    // Read the selected app language.
     final responseLanguage =
         _getResponseLanguage(languageCode);
 
-    // Send both the message and language to Express.
     final res = await ApiClient.post(
       '/ai/chat',
       {
@@ -134,47 +133,19 @@ class AiService {
       },
     );
 
-    // ------------------------------------------------------------------------
-    // DEBUG
-    // ------------------------------------------------------------------------
-
     print('==================================================');
     print('[AI FLUTTER] Response language: $responseLanguage');
-    print('[AI FLUTTER] Backend response:');
-    print(res);
+    print('[AI FLUTTER] Backend response: $res');
     print('==================================================');
-
-    // ------------------------------------------------------------------------
-    // GET ACTUAL AI RESPONSE
-    // ------------------------------------------------------------------------
 
     final dynamic rawReply = res['aiResponse'];
 
-    if (rawReply == null) {
+    if (rawReply is! String || rawReply.trim().isEmpty) {
       throw Exception(
-        'Backend did not return aiResponse. '
+        'Backend did not return a valid aiResponse. '
         'Response: $res',
       );
     }
-
-    if (rawReply is! String) {
-      throw Exception(
-        'Backend aiResponse is not a String. '
-        'Type: ${rawReply.runtimeType}',
-      );
-    }
-
-    final reply = rawReply.trim();
-
-    if (reply.isEmpty) {
-      throw Exception(
-        'Backend returned an empty aiResponse.',
-      );
-    }
-
-    // ------------------------------------------------------------------------
-    // CONTEXT USED
-    // ------------------------------------------------------------------------
 
     final dynamic contextUsed = res['contextUsed'];
 
@@ -184,13 +155,13 @@ class AiService {
             : {};
 
     final int foodLogCount =
-        _toInt(context['todayFoodLogs']);
+        _toInt(context['todayFoodLogs'] ?? context['foodLogs']);
 
     final int sleepLogCount =
-        _toInt(context['todaySleepLogs']);
+        _toInt(context['todaySleepLogs'] ?? context['sleepLogs']);
 
     final int moodLogCount =
-        _toInt(context['todayMoodLogs']);
+        _toInt(context['todayMoodLogs'] ?? context['moodLogs']);
 
     final int previousChats =
         _toInt(context['previousChats']);
@@ -198,19 +169,8 @@ class AiService {
     final String? date =
         context['date']?.toString();
 
-    // ------------------------------------------------------------------------
-    // AI AVAILABILITY
-    // ------------------------------------------------------------------------
-
     final bool aiAvailable =
         res['aiAvailable'] == true;
-
-    // ------------------------------------------------------------------------
-    // FASTING PRACTICE AND GOAL
-    //
-    // The current backend does not return userContext.
-    // Use safe defaults when it is absent.
-    // ------------------------------------------------------------------------
 
     final dynamic userContext = res['userContext'];
 
@@ -231,12 +191,8 @@ class AiService {
       }
     }
 
-    // ------------------------------------------------------------------------
-    // RETURN RESPONSE
-    // ------------------------------------------------------------------------
-
     return AiChatResponse(
-      reply: reply,
+      reply: rawReply.trim(),
       fastingPractice: fastingPractice,
       goal: goal,
       foodLogCount: foodLogCount,
@@ -249,28 +205,146 @@ class AiService {
   }
 
   // ==========================================================================
-  // CONVERT ANY NUMERIC VALUE SAFELY TO INT
+  // CONVERT NUMERIC VALUES SAFELY
   // ==========================================================================
 
   static int _toInt(dynamic value) {
-    if (value is int) {
-      return value;
-    }
-
-    if (value is num) {
-      return value.toInt();
-    }
-
-    if (value is String) {
-      return int.tryParse(value) ?? 0;
-    }
-
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? 0;
     return 0;
   }
 
   // ==========================================================================
-  // SMART RECIPES FROM PANTRY INGREDIENTS
+  // PANTRY SMART CHEF — PLAIN-TEXT AI RESPONSE
   // POST /api/v1/ai/smart-recommendations
+  // ==========================================================================
+
+  static Future<String> generatePantryRecipes({
+    required List<String> ingredients,
+    String? languageCode,
+    String fastingPractice = 'none',
+    List<String> dietaryRestrictions = const [],
+    String cuisinePreference = 'Ethiopian',
+    String mealType = 'any',
+    int recipeCount = 3,
+  }) async {
+    final cleanIngredients = <String>[
+      ...{
+        for (final ingredient in ingredients)
+          if (ingredient.trim().isNotEmpty)
+            ingredient.trim(),
+      },
+    ];
+
+    if (cleanIngredients.isEmpty) {
+      throw Exception('Select at least one ingredient.');
+    }
+
+    if (cleanIngredients.length > 60) {
+      throw Exception('Select no more than 60 ingredients.');
+    }
+
+    final safeRecipeCount =
+        recipeCount.clamp(1, 8).toInt();
+
+    final responseLanguage =
+        _getResponseLanguage(languageCode);
+
+    // ApiClient.baseUrl is a String, so parse it into a Uri first.
+    final baseUrl = Uri.parse(ApiClient.baseUrl);
+
+    // Preserve a possible API path prefix in the configured base URL.
+    // For example:
+    // https://example.com/api/v1
+    // becomes:
+    // https://example.com/api/v1/ai/smart-recommendations
+    final normalizedBasePath =
+        baseUrl.path.replaceFirst(RegExp(r'/+$'), '');
+
+    final uri = baseUrl.replace(
+      path: '$normalizedBasePath/ai/smart-recommendations',
+      query: null,
+      fragment: null,
+    );
+
+    // IMPORTANT:
+    // The API client must expose the authentication token somehow for
+    // this direct text response request. This implementation below
+    // uses the existing ApiClient.post() for JSON calls, but plain-text
+    // responses need a direct HTTP request.
+    //
+    // Add your existing token/header logic here if ApiClient uses
+    // custom authentication headers.
+
+    final response = await http.post(
+      uri,
+      headers: const {
+        'Content-Type': 'application/json',
+        'Accept': 'text/plain',
+      },
+      body: _encodePantryRequest(
+        ingredients: cleanIngredients,
+        language: responseLanguage,
+        fastingPractice: fastingPractice,
+        dietaryRestrictions: dietaryRestrictions,
+        cuisinePreference: cuisinePreference,
+        mealType: mealType,
+        recipeCount: safeRecipeCount,
+      ),
+    );
+
+    print('==================================================');
+    print('[PANTRY SMART CHEF] URL: $uri');
+    print('[PANTRY SMART CHEF] Status: ${response.statusCode}');
+    print('[PANTRY SMART CHEF] Response: ${response.body}');
+    print('==================================================');
+
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300) {
+      throw Exception(
+        response.body.trim().isNotEmpty
+            ? response.body.trim()
+            : 'Recipe generation failed (${response.statusCode}).',
+      );
+    }
+
+    final reply = response.body.trim();
+
+    if (reply.isEmpty) {
+      throw Exception('The AI returned empty recipe text.');
+    }
+
+    return reply;
+  }
+
+  // ==========================================================================
+  // ENCODE PANTRY REQUEST
+  // ==========================================================================
+
+  static String _encodePantryRequest({
+    required List<String> ingredients,
+    required String language,
+    required String fastingPractice,
+    required List<String> dietaryRestrictions,
+    required String cuisinePreference,
+    required String mealType,
+    required int recipeCount,
+  }) {
+    return jsonEncode({
+      'ingredients': ingredients,
+      'language': language,
+      'fastingPractice': fastingPractice,
+      'dietaryRestrictions': dietaryRestrictions,
+      'cuisinePreference': cuisinePreference,
+      'mealType': mealType,
+      'recipeCount': recipeCount,
+    });
+  }
+
+  // ==========================================================================
+  // LEGACY STRUCTURED RECOMMENDATIONS
+  // Retained for screens that still expect JSON recipe objects.
   // ==========================================================================
 
   static Future<List<RecipeRecommendation>>
@@ -283,10 +357,7 @@ class AiService {
       '/ai/smart-recommendations',
       {
         'ingredients': ingredients,
-
-        if (mealType != null)
-          'mealType': mealType,
-
+        if (mealType != null) 'mealType': mealType,
         'numberOfRecipes': numberOfRecipes,
       },
     );

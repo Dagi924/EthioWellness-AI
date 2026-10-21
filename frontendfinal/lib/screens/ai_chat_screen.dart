@@ -4,6 +4,10 @@ import '../services/ai_service.dart';
 import '../services/app_localization.dart';
 import '../widgets/language_toggle_button.dart';
 
+// ============================================================================
+// CHAT MESSAGE
+// ============================================================================
+
 class ChatMessage {
   final String text;
   final bool isUser;
@@ -19,6 +23,10 @@ class ChatMessage {
     this.translationKey,
   });
 }
+
+// ============================================================================
+// AI CHAT SCREEN
+// ============================================================================
 
 class AiChatScreen extends StatefulWidget {
   const AiChatScreen({super.key});
@@ -54,14 +62,71 @@ class _AiChatScreenState extends State<AiChatScreen> {
     'chat_quick_prompt_daily_nutrition',
   ];
 
-  final List<String> _pantryItems = [
-    'Teff Flour',
-    'Shiro Powder',
-    'Onion',
-    'Berbere',
-    'Garlic',
-    'Lentils',
-  ];
+  // ==========================================================================
+  // PANTRY INGREDIENTS
+  // ==========================================================================
+
+  final Map<String, List<String>> _pantryCategories = {
+    'Grains & staples': [
+      'Teff Flour',
+      'Teff Injera',
+      'Wheat Flour',
+      'Rice',
+      'Oats',
+      'Pasta',
+      'Bread',
+      'Potatoes',
+      'Sweet Potatoes',
+    ],
+    'Legumes & protein': [
+      'Shiro Powder',
+      'Lentils',
+      'Chickpeas',
+      'Split Peas',
+      'Beans',
+      'Peanuts',
+      'Telba (Flaxseed)',
+      'Sunflower Seeds',
+      'Eggs',
+      'Milk',
+      'Yogurt',
+      'Cheese',
+      'Chicken',
+      'Beef',
+      'Fish',
+    ],
+    'Vegetables': [
+      'Onion',
+      'Garlic',
+      'Tomato',
+      'Carrot',
+      'Cabbage',
+      'Spinach',
+      'Kale',
+      'Green Pepper',
+      'Potato',
+      'Pumpkin',
+    ],
+    'Spices & oils': [
+      'Berbere',
+      'Mitmita',
+      'Turmeric',
+      'Ginger',
+      'Black Pepper',
+      'Cumin',
+      'Olive Oil',
+      'Vegetable Oil',
+      'Salt',
+    ],
+    'Other': [
+      'Banana',
+      'Avocado',
+      'Lemon',
+      'Honey',
+      'Sugar',
+      'Coffee',
+    ],
+  };
 
   final Map<String, String> _pantryTranslationKeys = {
     'Teff Flour': 'chat_pantry_teff_flour',
@@ -75,10 +140,6 @@ class _AiChatScreenState extends State<AiChatScreen> {
   String _tr(String key) {
     return AppLocalization.instance.tr(key);
   }
-
-  // ============================================================
-  // GET THE CURRENT APP LANGUAGE
-  // ============================================================
 
   String get _responseLanguage {
     final languageCode =
@@ -116,6 +177,12 @@ class _AiChatScreenState extends State<AiChatScreen> {
     return message.text;
   }
 
+  String _pantryLabel(String item) {
+    final key = _pantryTranslationKeys[item];
+
+    return key == null ? item : _tr(key);
+  }
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollCtrl.hasClients) return;
@@ -128,27 +195,37 @@ class _AiChatScreenState extends State<AiChatScreen> {
     });
   }
 
-  // ============================================================
-  // SEND CHAT MESSAGE WITH THE SELECTED RESPONSE LANGUAGE
-  // ============================================================
+  void _addMessage({
+    required String text,
+    required bool isUser,
+    String? fastingPractice,
+  }) {
+    _messages.add(
+      ChatMessage(
+        text: text,
+        isUser: isUser,
+        timestamp: DateTime.now(),
+        fastingPractice: fastingPractice,
+      ),
+    );
+  }
+
+  // ==========================================================================
+  // NORMAL AI CHAT
+  // ==========================================================================
 
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty || _isLoading) return;
 
     final userMessage = text.trim();
-
-    // Capture the selected language when the message is sent.
     final languageCode = _responseLanguage;
 
     _messageCtrl.clear();
 
     setState(() {
-      _messages.add(
-        ChatMessage(
-          text: userMessage,
-          isUser: true,
-          timestamp: DateTime.now(),
-        ),
+      _addMessage(
+        text: userMessage,
+        isUser: true,
       );
 
       _isLoading = true;
@@ -168,25 +245,19 @@ class _AiChatScreenState extends State<AiChatScreen> {
         _activeFastingRule =
             aiResult.fastingPractice.toUpperCase();
 
-        _messages.add(
-          ChatMessage(
-            text: aiResult.reply,
-            isUser: false,
-            timestamp: DateTime.now(),
-            fastingPractice: aiResult.fastingPractice,
-          ),
+        _addMessage(
+          text: aiResult.reply,
+          isUser: false,
+          fastingPractice: aiResult.fastingPractice,
         );
       });
-    } catch (e) {
+    } catch (error) {
       if (!mounted) return;
 
       setState(() {
-        _messages.add(
-          ChatMessage(
-            text: '${_tr('chat_connection_error')}: $e',
-            isUser: false,
-            timestamp: DateTime.now(),
-          ),
+        _addMessage(
+          text: '${_tr('chat_connection_error')}: $error',
+          isUser: false,
         );
       });
     } finally {
@@ -200,12 +271,136 @@ class _AiChatScreenState extends State<AiChatScreen> {
     }
   }
 
+  // ==========================================================================
+  // PANTRY SMART CHEF
+  //
+  // Calls the dedicated plain-text recipe endpoint through AiService.
+  // It does NOT send pantry requests to the normal chatbot endpoint.
+  // ==========================================================================
+
+  Future<void> _generatePantryRecipes({
+    required List<String> ingredients,
+    required String fastingPractice,
+    required List<String> dietaryRestrictions,
+    required String cuisinePreference,
+    required String mealType,
+    required int recipeCount,
+  }) async {
+    if (_isLoading) return;
+
+    final languageCode = _responseLanguage;
+
+    final summary = StringBuffer()
+      ..writeln('Create $recipeCount $cuisinePreference recipe(s).')
+      ..writeln('Ingredients: ${ingredients.join(', ')}')
+      ..writeln('Fasting practice: $fastingPractice')
+      ..writeln('Dietary restrictions: '
+          '${dietaryRestrictions.isEmpty ? 'None specified' : dietaryRestrictions.join(', ')}')
+      ..writeln('Meal type: $mealType');
+
+    setState(() {
+      _addMessage(
+        text: summary.toString().trim(),
+        isUser: true,
+        fastingPractice: fastingPractice,
+      );
+
+      _isLoading = true;
+    });
+
+    _scrollToBottom();
+
+    try {
+      final recipeText = await AiService.generatePantryRecipes(
+        ingredients: ingredients,
+        languageCode: languageCode,
+        fastingPractice: fastingPractice,
+        dietaryRestrictions: dietaryRestrictions,
+        cuisinePreference: cuisinePreference,
+        mealType: mealType,
+        recipeCount: recipeCount,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _addMessage(
+          text: recipeText,
+          isUser: false,
+          fastingPractice: fastingPractice,
+        );
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _addMessage(
+          text: 'Could not generate recipes: $error',
+          isUser: false,
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+
+        _scrollToBottom();
+      }
+    }
+  }
+
+  // ==========================================================================
+  // PANTRY BOTTOM SHEET
+  // ==========================================================================
+
   void _openPantryRecipeSheet() {
-    final selected = <String>{
+    final Set<String> selected = {
       'Teff Flour',
       'Shiro Powder',
       'Onion',
     };
+
+    final Set<String> selectedRestrictions = {};
+
+    String searchQuery = '';
+    String fastingPractice = 'Orthodox fasting';
+    String cuisinePreference = 'Ethiopian';
+    String mealType = 'Any meal';
+    int recipeCount = 3;
+
+    final List<String> fastingOptions = [
+      'None',
+      'Orthodox fasting',
+      'Ramadan fasting',
+      'Vegetarian',
+      'Vegan',
+    ];
+
+    final List<String> cuisineOptions = [
+      'Ethiopian',
+      'East African',
+      'Mediterranean',
+      'Asian',
+      'Mixed',
+    ];
+
+    final List<String> mealOptions = [
+      'Any meal',
+      'Breakfast',
+      'Lunch',
+      'Dinner',
+      'Snack',
+    ];
+
+    final List<String> restrictionOptions = [
+      'Gluten-free',
+      'Dairy-free',
+      'Nut-free',
+      'Low-sodium',
+      'No added sugar',
+      'High-protein',
+    ];
 
     showModalBottomSheet(
       context: context,
@@ -222,162 +417,510 @@ class _AiChatScreenState extends State<AiChatScreen> {
           builder: (context, child) {
             return StatefulBuilder(
               builder: (context, setSheetState) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 22,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFF5EBE1),
-                                    shape: BoxShape.circle,
+                final query = searchQuery.toLowerCase().trim();
+
+                final visibleCategories =
+                    _pantryCategories.entries
+                        .map((entry) {
+                          final items = entry.value.where((item) {
+                            return query.isEmpty ||
+                                item.toLowerCase().contains(query);
+                          }).toList();
+
+                          return MapEntry(entry.key, items);
+                        })
+                        .where((entry) => entry.value.isNotEmpty)
+                        .toList();
+
+                return SafeArea(
+                  child: FractionallySizedBox(
+                    heightFactor: 0.92,
+                    child: Column(
+                      children: [
+                        // ----------------------------------------------------
+                        // HEADER
+                        // ----------------------------------------------------
+
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            20,
+                            18,
+                            12,
+                            8,
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(9),
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFF5EBE1),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.kitchen_rounded,
+                                  color: Color(0xFF8D4F28),
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _tr('chat_pantry_title'),
+                                      style: const TextStyle(
+                                        fontSize: 19,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF542E13),
+                                      ),
+                                    ),
+                                    Text(
+                                      _tr('chat_pantry_description'),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Color(0xFF78716C),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () =>
+                                    Navigator.pop(sheetContext),
+                                icon: const Icon(
+                                  Icons.close_rounded,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const Divider(
+                          color: Color(0xFFEADBCE),
+                          height: 1,
+                        ),
+
+                        // ----------------------------------------------------
+                        // SCROLLABLE OPTIONS
+                        // ----------------------------------------------------
+
+                        Expanded(
+                          child: ListView(
+                            padding: const EdgeInsets.fromLTRB(
+                              20,
+                              16,
+                              20,
+                              20,
+                            ),
+                            children: [
+                              // Search ingredients.
+                              TextField(
+                                onChanged: (value) {
+                                  setSheetState(() {
+                                    searchQuery = value;
+                                  });
+                                },
+                                decoration: InputDecoration(
+                                  hintText: 'Search ingredients...',
+                                  prefixIcon: const Icon(
+                                    Icons.search_rounded,
                                   ),
-                                  child: const Icon(
-                                    Icons.kitchen_rounded,
-                                    color: Color(0xFF8D4F28),
-                                    size: 20,
+                                  filled: true,
+                                  fillColor:
+                                      const Color(0xFFF8F3EC),
+                                  border: OutlineInputBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(14),
+                                    borderSide: BorderSide.none,
                                   ),
                                 ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    _tr('chat_pantry_title'),
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF542E13),
+                              ),
+
+                              const SizedBox(height: 14),
+
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'Your ingredients',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF542E13),
+                                      ),
                                     ),
                                   ),
+                                  Text(
+                                    '${selected.length} selected',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF78716C),
+                                    ),
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 10),
+
+                              // Ingredient categories.
+                              ...visibleCategories.map((category) {
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Padding(
+                                      padding:
+                                          const EdgeInsets.only(
+                                        top: 10,
+                                        bottom: 5,
+                                      ),
+                                      child: Text(
+                                        category.key,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF78716C),
+                                        ),
+                                      ),
+                                    ),
+                                    Wrap(
+                                      spacing: 7,
+                                      runSpacing: 7,
+                                      children: category.value.map((item) {
+                                        final isSelected =
+                                            selected.contains(item);
+
+                                        return FilterChip(
+                                          label: Text(
+                                            _pantryLabel(item),
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: isSelected
+                                                  ? FontWeight.bold
+                                                  : FontWeight.normal,
+                                            ),
+                                          ),
+                                          selected: isSelected,
+                                          selectedColor:
+                                              const Color(0xFFF5EBE1),
+                                          backgroundColor:
+                                              const Color(0xFFF8F3EC),
+                                          checkmarkColor:
+                                              const Color(0xFF542E13),
+                                          onSelected: (value) {
+                                            setSheetState(() {
+                                              if (value) {
+                                                selected.add(item);
+                                              } else {
+                                                selected.remove(item);
+                                              }
+                                            });
+                                          },
+                                        );
+                                      }).toList(),
+                                    ),
+                                  ],
+                                );
+                              }),
+
+                              const SizedBox(height: 22),
+
+                              // Cuisine preference.
+                              const Text(
+                                'Cuisine preference',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF542E13),
                                 ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.close_rounded,
-                              color: Color(0xFF78716C),
-                            ),
-                            onPressed: () =>
-                                Navigator.pop(sheetContext),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _tr('chat_pantry_description'),
-                        style: const TextStyle(
-                          color: Color(0xFF78716C),
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _pantryItems.map((item) {
-                          final isSelected =
-                              selected.contains(item);
-
-                          final translationKey =
-                              _pantryTranslationKeys[item]!;
-
-                          return FilterChip(
-                            label: Text(
-                              _tr(translationKey),
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.w500,
-                                color: isSelected
-                                    ? const Color(0xFF542E13)
-                                    : const Color(0xFF44403C),
                               ),
-                            ),
-                            selected: isSelected,
-                            selectedColor:
-                                const Color(0xFFF5EBE1),
-                            backgroundColor:
-                                const Color(0xFFF8F3EC),
-                            checkmarkColor:
-                                const Color(0xFF542E13),
-                            shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(10),
-                              side: BorderSide(
-                                color: isSelected
-                                    ? const Color(0xFF542E13)
-                                    : const Color(0xFFEADBCE),
-                              ),
-                            ),
-                            onSelected: (value) {
-                              setSheetState(() {
-                                if (value) {
-                                  selected.add(item);
-                                } else {
-                                  selected.remove(item);
-                                }
-                              });
-                            },
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                const Color(0xFF542E13),
-                            foregroundColor: Colors.white,
-                            minimumSize:
-                                const Size(double.infinity, 50),
-                            shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(14),
-                            ),
-                            elevation: 0,
-                          ),
-                          icon: const Icon(
-                            Icons.auto_awesome_rounded,
-                            size: 18,
-                          ),
-                          label: Text(
-                            _tr('chat_generate_recipes'),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                          onPressed: selected.isEmpty
-                              ? null
-                              : () {
-                                  final ingredients =
-                                      selected.join(', ');
 
-                                  Navigator.pop(sheetContext);
+                              const SizedBox(height: 8),
 
-                                  _sendMessage(
-                                    'Suggest 3 healthy Ethiopian '
-                                    'fasting meals I can make right '
-                                    'now using only: $ingredients.',
+                              DropdownButtonFormField<String>(
+                                value: cuisinePreference,
+                                isExpanded: true,
+                                decoration: InputDecoration(
+                                  filled: true,
+                                  fillColor:
+                                      const Color(0xFFF8F3EC),
+                                  border: OutlineInputBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(12),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                ),
+                                items: cuisineOptions.map((option) {
+                                  return DropdownMenuItem(
+                                    value: option,
+                                    child: Text(option),
                                   );
+                                }).toList(),
+                                onChanged: (value) {
+                                  if (value == null) return;
+
+                                  setSheetState(() {
+                                    cuisinePreference = value;
+                                  });
                                 },
+                              ),
+
+                              const SizedBox(height: 18),
+
+                              // Fasting preference.
+                              const Text(
+                                'Fasting and diet preference',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF542E13),
+                                ),
+                              ),
+
+                              const SizedBox(height: 8),
+
+                              DropdownButtonFormField<String>(
+                                value: fastingPractice,
+                                isExpanded: true,
+                                decoration: InputDecoration(
+                                  filled: true,
+                                  fillColor:
+                                      const Color(0xFFF8F3EC),
+                                  border: OutlineInputBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(12),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                ),
+                                items: fastingOptions.map((option) {
+                                  return DropdownMenuItem(
+                                    value: option,
+                                    child: Text(option),
+                                  );
+                                }).toList(),
+                                onChanged: (value) {
+                                  if (value == null) return;
+
+                                  setSheetState(() {
+                                    fastingPractice = value;
+                                  });
+                                },
+                              ),
+
+                              const SizedBox(height: 18),
+
+                              // Meal type.
+                              const Text(
+                                'Meal type',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF542E13),
+                                ),
+                              ),
+
+                              const SizedBox(height: 8),
+
+                              DropdownButtonFormField<String>(
+                                value: mealType,
+                                isExpanded: true,
+                                decoration: InputDecoration(
+                                  filled: true,
+                                  fillColor:
+                                      const Color(0xFFF8F3EC),
+                                  border: OutlineInputBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(12),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                ),
+                                items: mealOptions.map((option) {
+                                  return DropdownMenuItem(
+                                    value: option,
+                                    child: Text(option),
+                                  );
+                                }).toList(),
+                                onChanged: (value) {
+                                  if (value == null) return;
+
+                                  setSheetState(() {
+                                    mealType = value;
+                                  });
+                                },
+                              ),
+
+                              const SizedBox(height: 18),
+
+                              // Dietary restrictions.
+                              const Text(
+                                'Additional dietary requirements',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF542E13),
+                                ),
+                              ),
+
+                              const SizedBox(height: 8),
+
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 2,
+                                children: restrictionOptions.map((item) {
+                                  final isSelected =
+                                      selectedRestrictions.contains(item);
+
+                                  return FilterChip(
+                                    label: Text(
+                                      item,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    selected: isSelected,
+                                    onSelected: (value) {
+                                      setSheetState(() {
+                                        if (value) {
+                                          selectedRestrictions.add(item);
+                                        } else {
+                                          selectedRestrictions.remove(item);
+                                        }
+                                      });
+                                    },
+                                  );
+                                }).toList(),
+                              ),
+
+                              const SizedBox(height: 18),
+
+                              // Recipe count.
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'Number of recipes',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF542E13),
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF5EBE1),
+                                      borderRadius:
+                                          BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      '$recipeCount',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF542E13),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+
+                              Slider(
+                                value: recipeCount.toDouble(),
+                                min: 1,
+                                max: 8,
+                                divisions: 7,
+                                activeColor:
+                                    const Color(0xFF542E13),
+                                onChanged: (value) {
+                                  setSheetState(() {
+                                    recipeCount = value.round();
+                                  });
+                                },
+                              ),
+
+                              const SizedBox(height: 10),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+
+                        // ----------------------------------------------------
+                        // GENERATE BUTTON
+                        // ----------------------------------------------------
+
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(
+                            20,
+                            12,
+                            20,
+                            16,
+                          ),
+                          decoration: const BoxDecoration(
+                            color: Colors.white,
+                            border: Border(
+                              top: BorderSide(
+                                color: Color(0xFFEADBCE),
+                              ),
+                            ),
+                          ),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor:
+                                    const Color(0xFF542E13),
+                                foregroundColor: Colors.white,
+                                minimumSize:
+                                    const Size(double.infinity, 52),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius:
+                                      BorderRadius.circular(14),
+                                ),
+                                elevation: 0,
+                              ),
+                              icon: const Icon(
+                                Icons.auto_awesome_rounded,
+                                size: 19,
+                              ),
+                              label: Text(
+                                'Generate $recipeCount recipe(s)',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              onPressed: selected.isEmpty
+                                  ? null
+                                  : () {
+                                      final ingredients =
+                                          selected.toList();
+
+                                      final restrictions =
+                                          selectedRestrictions.toList();
+
+                                      Navigator.pop(sheetContext);
+
+                                      _generatePantryRecipes(
+                                        ingredients: ingredients,
+                                        fastingPractice:
+                                            fastingPractice,
+                                        dietaryRestrictions:
+                                            restrictions,
+                                        cuisinePreference:
+                                            cuisinePreference,
+                                        mealType: mealType,
+                                        recipeCount: recipeCount,
+                                      );
+                                    },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },
@@ -387,6 +930,10 @@ class _AiChatScreenState extends State<AiChatScreen> {
       },
     );
   }
+
+  // ==========================================================================
+  // BUILD SCREEN
+  // ==========================================================================
 
   @override
   Widget build(BuildContext context) {
@@ -423,14 +970,16 @@ class _AiChatScreenState extends State<AiChatScreen> {
               IconButton(
                 icon: const Icon(Icons.kitchen_outlined),
                 tooltip: _tr('chat_pantry_title'),
-                onPressed: _openPantryRecipeSheet,
+                onPressed: _isLoading
+                    ? null
+                    : _openPantryRecipeSheet,
               ),
               const SizedBox(width: 4),
             ],
           ),
           body: Column(
             children: [
-              // Active profile and fasting context.
+              // Active fasting context.
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -524,14 +1073,14 @@ class _AiChatScreenState extends State<AiChatScreen> {
                           crossAxisAlignment:
                               CrossAxisAlignment.start,
                           children: [
-                            Text(
+                            SelectableText(
                               _messageText(message),
                               style: TextStyle(
                                 color: message.isUser
                                     ? Colors.white
                                     : const Color(0xFF1C1917),
                                 fontSize: 14,
-                                height: 1.45,
+                                height: 1.5,
                               ),
                             ),
                             const SizedBox(height: 5),
@@ -559,7 +1108,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
               // Loading indicator.
               if (_isLoading)
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -572,11 +1121,13 @@ class _AiChatScreenState extends State<AiChatScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        _tr('chat_loading_message'),
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          color: Color(0xFF78716C),
+                      Flexible(
+                        child: Text(
+                          _tr('chat_loading_message'),
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            color: Color(0xFF78716C),
+                          ),
                         ),
                       ),
                     ],
@@ -611,8 +1162,11 @@ class _AiChatScreenState extends State<AiChatScreen> {
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      onPressed: () =>
-                          _sendMessage(_quickPrompts[index]),
+                      onPressed: _isLoading
+                          ? null
+                          : () => _sendMessage(
+                                _quickPrompts[index],
+                              ),
                     );
                   },
                 ),
@@ -640,6 +1194,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                       Expanded(
                         child: TextField(
                           controller: _messageCtrl,
+                          enabled: !_isLoading,
                           textInputAction: TextInputAction.send,
                           style: const TextStyle(
                             fontSize: 14,
@@ -699,8 +1254,11 @@ class _AiChatScreenState extends State<AiChatScreen> {
                             color: Colors.white,
                             size: 18,
                           ),
-                          onPressed: () =>
-                              _sendMessage(_messageCtrl.text),
+                          onPressed: _isLoading
+                              ? null
+                              : () => _sendMessage(
+                                    _messageCtrl.text,
+                                  ),
                         ),
                       ),
                     ],

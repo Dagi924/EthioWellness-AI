@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
-
+const {
+  generatePantryRecipesWithAI,
+} = require('../services/openrouter_service');
 const {
   eq,
   desc,
@@ -1062,65 +1064,186 @@ router.delete(
 
 // ============================================================
 // POST /api/v1/ai/smart-recommendations
+// PANTRY SMART CHEF — PLAIN TEXT RESPONSE
+// Authentication is not required for this endpoint.
 // ============================================================
 
 router.post(
   '/smart-recommendations',
-  authenticateToken,
   async (req, res) => {
     try {
       const {
-        ingredients = [
-          'Chickpea Flour',
-          'Onions',
-          'Garlic',
-          'Teff Injera',
-        ],
-      } = req.body;
+        ingredients,
+        language = 'en',
+        fastingPractice = 'unknown',
+        dietaryRestrictions = [],
+        recipeCount = 5,
+        numberOfRecipes,
+        cuisinePreference = 'mixed',
+        mealType = 'any',
+      } = req.body || {};
 
-      return res.status(200).json({
-        ingredientsProvided: ingredients,
+      // --------------------------------------------------------
+      // VALIDATE INGREDIENTS
+      // --------------------------------------------------------
 
-        recommendedRecipes: [
-          {
-            id: 'rec-1',
-            title: 'Quick Shiro Tegabino',
-            prepTimeMinutes: 15,
-            difficulty: 'Easy',
-            isVegan: true,
-            matchingIngredientsCount: 4,
-            instructions:
-              'Sauté onions and garlic in olive oil, add berbere spice, whisk chickpea flour with water, simmer in a claypot for 12 mins. Serve hot with Teff Injera.',
-          },
-          {
-            id: 'rec-2',
-            title: 'Suf Fitfit Dip',
-            prepTimeMinutes: 10,
-            difficulty: 'Easy',
-            isVegan: true,
-            matchingIngredientsCount: 3,
-            instructions:
-              'Blend roasted sunflower seeds with warm water, green chilies, and garlic. Shred Teff Injera into pieces and toss into the creamy seed juice.',
-          },
-        ],
-      });
+      if (
+        !Array.isArray(ingredients) ||
+        ingredients.length === 0 ||
+        ingredients.length > 60
+      ) {
+        return res
+          .status(400)
+          .type('text/plain')
+          .send('Select between 1 and 60 ingredients.');
+      }
 
-    } catch (err) {
-      console.error(
-        '[SMART RECOMMENDATIONS] ERROR:',
-        err
+      const cleanIngredients = [
+        ...new Set(
+          ingredients
+            .filter((item) => typeof item === 'string')
+            .map((item) => item.trim())
+            .filter(Boolean)
+        ),
+      ];
+
+      if (cleanIngredients.length === 0) {
+        return res
+          .status(400)
+          .type('text/plain')
+          .send('No valid ingredients were provided.');
+      }
+
+      // --------------------------------------------------------
+      // VALIDATE DIETARY RESTRICTIONS
+      // --------------------------------------------------------
+
+      if (
+        !Array.isArray(dietaryRestrictions) ||
+        dietaryRestrictions.length > 30 ||
+        !dietaryRestrictions.every(
+          (item) =>
+            typeof item === 'string' &&
+            item.trim().length > 0
+        )
+      ) {
+        return res
+          .status(400)
+          .type('text/plain')
+          .send('Invalid dietary restrictions.');
+      }
+
+      // --------------------------------------------------------
+      // VALIDATE RECIPE COUNT
+      // --------------------------------------------------------
+
+      const parsedCount = Number(
+        numberOfRecipes ?? recipeCount
       );
 
-      return res.status(500).json({
-        error: 'Failed to generate recommendations',
-        details: err.message,
-      });
+      const safeRecipeCount = Number.isFinite(parsedCount)
+        ? Math.min(
+            8,
+            Math.max(1, Math.floor(parsedCount))
+          )
+        : 5;
+
+      // --------------------------------------------------------
+      // CHECK AI SERVICE
+      // --------------------------------------------------------
+
+      if (
+        typeof generatePantryRecipesWithAI !== 'function'
+      ) {
+        throw new Error(
+          'generatePantryRecipesWithAI is not exported from openrouter_service.js.'
+        );
+      }
+
+      // --------------------------------------------------------
+      // LOG REQUEST — NO USER ID REQUIRED
+      // --------------------------------------------------------
+
+      const responseLanguage =
+        language === 'am' ? 'am' : 'en';
+
+      console.log(
+        `[PANTRY SMART CHEF] ` +
+        `ingredients=${cleanIngredients.length}, ` +
+        `recipes=${safeRecipeCount}, ` +
+        `language=${responseLanguage}`
+      );
+
+      // --------------------------------------------------------
+      // GENERATE RECIPES
+      // --------------------------------------------------------
+
+      const recipesText =
+        await generatePantryRecipesWithAI({
+          ingredients: cleanIngredients,
+
+          language: responseLanguage,
+
+          fastingPractice:
+            String(fastingPractice).slice(0, 100),
+
+          dietaryRestrictions:
+            dietaryRestrictions.map(
+              (item) => item.trim().slice(0, 100)
+            ),
+
+          recipeCount: safeRecipeCount,
+
+          cuisinePreference:
+            String(cuisinePreference).slice(0, 100),
+
+          mealType:
+            String(mealType).slice(0, 50),
+        });
+
+      // --------------------------------------------------------
+      // VALIDATE AI RESPONSE
+      // Service returns a plain string, not an object.
+      // --------------------------------------------------------
+
+      if (
+        typeof recipesText !== 'string' ||
+        !recipesText.trim()
+      ) {
+        throw new Error(
+          'AI returned empty or invalid recipe text.'
+        );
+      }
+
+      // --------------------------------------------------------
+      // RETURN PLAIN TEXT TO FLUTTER
+      // --------------------------------------------------------
+
+      return res
+        .status(200)
+        .type('text/plain')
+        .send(recipesText.trim());
+
+    } catch (error) {
+      console.error(
+        '[PANTRY SMART CHEF] Generation failed:',
+        error?.response?.data ||
+          error?.message ||
+          error
+      );
+
+      return res
+        .status(502)
+        .type('text/plain')
+        .send(
+          'Could not generate pantry recipes right now. Please try again.'
+        );
     }
   }
 );
 
 // ============================================================
-// EXPORT
+// EXPORT ROUTER
 // ============================================================
 
 module.exports = router;

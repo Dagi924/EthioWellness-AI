@@ -2130,6 +2130,153 @@ Use a practical Ethiopian grocery list format.
       TEXT_MODELS,
   });
 }
+// ============================================================
+// PANTRY SMART CHEF
+//
+// Generates recipes from the user's selected ingredients.
+// Returns plain text, NOT JSON.
+// ============================================================
+
+async function generatePantryRecipesWithAI({
+  ingredients = [],
+  language = 'en',
+  fastingPractice = 'unknown',
+  dietaryRestrictions = [],
+  recipeCount = 5,
+  cuisinePreference = 'Ethiopian',
+  mealType = 'any',
+}) {
+  if (
+    !Array.isArray(ingredients) ||
+    ingredients.length === 0
+  ) {
+    throw new Error(
+      'At least one ingredient is required.'
+    );
+  }
+
+  const safeIngredients = [
+    ...new Set(
+      ingredients
+        .filter((item) => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    ),
+  ];
+
+  if (safeIngredients.length === 0) {
+    throw new Error(
+      'No valid ingredients were supplied.'
+    );
+  }
+
+  const safeRestrictions =
+    Array.isArray(dietaryRestrictions)
+      ? dietaryRestrictions.filter(
+          (item) =>
+            typeof item === 'string' &&
+            item.trim()
+        )
+      : [];
+
+  const count = Math.min(
+    8,
+    Math.max(
+      1,
+      Math.floor(Number(recipeCount) || 5)
+    )
+  );
+
+  const isAmharic = language === 'am';
+
+  const systemPrompt = `
+You are EthioWellness AI's Pantry Smart Chef.
+
+Create practical, safe recipes using ingredients the user
+already has.
+
+CORE RULES:
+- Prioritize the user's selected ingredients.
+- Do not claim an ingredient is available unless the user selected it.
+- You may suggest a small number of optional seasonings or pantry basics,
+  but clearly label them as optional.
+- Never require an unselected main ingredient.
+- Give realistic preparation and cooking instructions.
+- Use reasonable cooking times and quantities.
+- Avoid unsafe food-handling advice.
+- Do not invent medical benefits or claim foods cure diseases.
+- Respect the user's fasting practice and dietary restrictions.
+- If Orthodox fasting is selected, make recipes vegan and exclude
+  meat, poultry, fish, eggs, dairy, butter, and other animal products.
+- If Ramadan fasting is selected, provide suitable meal ideas without
+  assuming that the user follows Orthodox vegan fasting rules.
+- Respect all listed allergies and dietary restrictions.
+- Do not claim a recipe is allergen-free unless its ingredients support
+  that claim.
+- Prefer Ethiopian recipes when Ethiopian cuisine is requested.
+- For other cuisines, adapt recipes to the selected ingredients.
+- Nutrition values, if included, must be identified as estimates.
+- Keep the output readable on a mobile phone.
+
+OUTPUT LANGUAGE:
+${isAmharic ? 'Amharic' : 'English'}
+
+NUMBER OF RECIPES:
+Generate exactly ${count} recipes.
+
+CUISINE PREFERENCE:
+${cuisinePreference}
+
+MEAL TYPE:
+${mealType}
+
+FASTING PRACTICE:
+${fastingPractice}
+
+DIETARY RESTRICTIONS:
+${safeJson(safeRestrictions)}
+
+USER'S AVAILABLE INGREDIENTS:
+${safeJson(safeIngredients)}
+
+OUTPUT FORMAT:
+Return normal readable text only.
+
+For each recipe, include:
+1. Recipe name
+2. Preparation time and cooking time
+3. Ingredients and quantities
+4. Step-by-step cooking instructions
+5. A short serving suggestion
+
+Clearly label optional ingredients.
+
+Do not return JSON.
+Do not use a code block.
+Do not include an introduction before the recipes.
+Do not include a conclusion after the recipes.
+Do not include recipes that violate the fasting practice or restrictions.
+`.trim();
+
+  const userPrompt = `
+Generate ${count} recipes using these available ingredients:
+
+${safeIngredients.join(', ')}
+
+Follow every requirement in the system instructions.
+Return the recipes in ${isAmharic ? 'Amharic' : 'English'}.
+`.trim();
+
+  return generatePlainText({
+    systemPrompt,
+    userPrompt,
+    maxTokens: 3500,
+    temperature: 0.5,
+    timeout: REQUEST_TIMEOUT,
+    label: 'pantry-smart-chef',
+    models: TEXT_MODELS,
+  });
+}
 
 // ============================================================
 // IMAGE INPUT
@@ -2741,6 +2888,7 @@ module.exports = {
 
   // Grocery
   generateGroceryListWithAI,
+generatePantryRecipesWithAI,
 
   // Vision
   analyzeMealImageWithAI,
